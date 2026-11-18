@@ -143,7 +143,7 @@ export function modal({ title, body, footer = '', size = '', dismissible = true 
   };
   const onKey = (e) => { if (e.key === 'Escape' && dismissible && root.lastElementChild === wrap) close(); };
   document.addEventListener('keydown', onKey);
-  wrap.addEventListener('mousedown', (e) => { if (e.target === wrap && dismissible) close(); });
+  // Clicking outside the dialog does not close it, so a half-filled form is never lost by accident.
   wrap.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', close));
   root.appendChild(wrap);
   const first = wrap.querySelector('.modal-body input:not([type=hidden]):not([disabled]), .modal-body select, .modal-body textarea');
