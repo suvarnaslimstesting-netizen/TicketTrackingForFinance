@@ -275,8 +275,19 @@ async function applyRules(e, rec, before, user) {
     throw httpError(400, 'This template is already enabled for the location.', { field: 'template' });
   }
   if (e.key === 'abreaks') {
+    const manager = has(user, 'impl.manage');
+    if (!manager) {
+      // Employees request breaks for themselves; the request waits for approval.
+      rec.eng = user.id;
+      if (before && before.status && before.status !== 'Pending') throw httpError(400, `This request is already ${before.status.toLowerCase()} and cannot be changed.`);
+      rec.status = 'Pending'; rec.decision = null; rec.decided_by = null;
+    } else if (!before) {
+      rec.status = 'Approved'; rec.decided_by = user.id; rec.decision = 'Added by manager';
+    } else {
+      rec.status = before.status || 'Approved'; rec.decision = before.decision; rec.decided_by = before.decided_by;
+    }
     rec.days = Math.round((Date.parse(rec.to_date) - Date.parse(rec.from_date)) / 864e5) + 1;
-    if (await q.get('SELECT id FROM im_abreaks WHERE client = ? AND eng = ? AND from_date <= ? AND to_date >= ? AND id <> ?', rec.client, rec.eng, rec.to_date, rec.from_date, id)) {
+    if (await q.get("SELECT id FROM im_abreaks WHERE client = ? AND eng = ? AND from_date <= ? AND to_date >= ? AND id <> ? AND COALESCE(status, 'Approved') <> 'Rejected'", rec.client, rec.eng, rec.to_date, rec.from_date, id)) {
       throw httpError(400, 'This break overlaps another break for the same engineer and client.', { field: 'from_date' });
     }
     if (!(await q.get('SELECT id FROM im_assign WHERE client = ? AND eng = ?', rec.client, rec.eng))) {
@@ -348,6 +359,8 @@ async function listRows(e, user, filters = {}) {
     where.push(`client IN (${allowed.map(() => '?').join(',')})`);
     params.push(...allowed);
   }
+  // Employees only see their own break requests.
+  if (e.key === 'abreaks' && !has(user, 'impl.manage') && !has(user, 'break.approve')) { where.push('eng = ?'); params.push(user.id); }
   for (const [k, v] of Object.entries(filters)) {
     if (v === undefined || v === '' || v === null) continue;
     if (!e.fields.some((f) => f.key === k)) continue;
@@ -382,6 +395,8 @@ async function saveRecord(e, body, user, id) {
   const before = id ? await getRow(e, id, user) : null;
   if (before) ownerCheck(e, before, user);
   const allowed = await allowedClients(user);
+  // Employees always request breaks for themselves.
+  if (e.key === 'abreaks' && !has(user, 'impl.manage')) body = { ...body, eng: user.id };
   const { rec, pendingFiles } = await readRecord(e, body, user, before, allowed);
   if (e.key === 'locations' && rec.radius_m === null) rec.radius_m = 300;
 
@@ -426,6 +441,9 @@ async function deleteRecord(e, id, user) {
   if (!canWrite(e, user)) throw httpError(403, 'You do not have permission to delete this.');
   const row = await getRow(e, id, user);
   ownerCheck(e, row, user);
+  if (e.key === 'abreaks' && !has(user, 'impl.manage') && row.status && row.status !== 'Pending') {
+    throw httpError(400, `This request is already ${row.status.toLowerCase()} and cannot be deleted.`);
+  }
   for (const [table, col, val] of (DEPENDENTS[e.key] || (() => []))(id)) {
     if (await q.get(`SELECT 1 AS x FROM ${table} WHERE ${col} = ? LIMIT 1`, val)) throw httpError(409, 'Remove the linked records first.');
   }

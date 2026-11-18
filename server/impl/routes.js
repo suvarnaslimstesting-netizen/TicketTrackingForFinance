@@ -147,6 +147,27 @@ router.post('/tasks/:id/reject', requirePerm('task.approve'), async (req, res) =
   res.json({ ok: true });
 });
 
+/* ------------------------------ Break requests ------------------------------ */
+
+router.get('/breaks/pending', requirePerm('break.approve'), async (req, res) => {
+  res.json(await E.listRows(ENTITIES.abreaks, req.user, { status: 'Pending' }));
+});
+
+async function decideBreak(req, status) {
+  const b = await E.getRow(ENTITIES.abreaks, +req.params.id, req.user);
+  if (b.status !== 'Pending') throw httpError(400, `This request is already ${(b.status || 'approved').toLowerCase()}.`);
+  const reason = str(req.body.reason);
+  if (status === 'Rejected' && reason.length < 3) throw httpError(400, 'Please give a reason for rejecting.');
+  const who = await q.get('SELECT employee_name FROM users WHERE id = ?', b.eng);
+  await tx(async () => {
+    await q.run(`UPDATE im_abreaks SET status = ?, decision = ?, decided_by = ?, updated_by = ?, updated_at = ${NOW} WHERE id = ?`, status, reason.slice(0, 500) || null, req.user.id, req.user.id, b.id);
+    await audit({ entity: 'IMPLEMENTATION', entityId: b.id, action: status === 'Approved' ? 'APPROVED' : 'REJECTED',
+      remarks: `Break request of ${who ? who.employee_name : ''} (${b.from_date} to ${b.to_date}) ${status.toLowerCase()}${reason ? `: ${reason}` : ''}`, user: req.user });
+  });
+}
+router.post('/breaks/:id/approve', requirePerm('break.approve'), async (req, res) => { await decideBreak(req, 'Approved'); res.json({ ok: true }); });
+router.post('/breaks/:id/reject', requirePerm('break.approve'), async (req, res) => { await decideBreak(req, 'Rejected'); res.json({ ok: true }); });
+
 /* ------------------------- Credentials and files ------------------------- */
 
 router.post('/servers/:id/reveal', requirePerm('credential.view'), async (req, res) => {
@@ -514,8 +535,9 @@ async function onsiteDays(user, f = {}) {
     if (a.work_mode !== 'Onsite') continue;
     if ((f.client && a.client !== f.client) || (f.eng && a.eng !== f.eng)) continue;
     const key = `${a.client}|${a.eng}`;
-    if (!groups.has(key)) groups.set(key, { client: a.client, eng: a.eng, dates: new Set(), periods: [] });
+    if (!groups.has(key)) groups.set(key, { client: a.client, eng: a.eng, dates: new Set(), periods: [], locs: new Set() });
     const g = groups.get(key);
+    if (a.loc) g.locs.add(a.loc);
     g.periods.push(`${a.from_date.split('-').reverse().join('-')} → ${a.to_date ? a.to_date.split('-').reverse().join('-') : 'ongoing'}`);
     const s = a.from_date > lo ? a.from_date : lo;
     const e = (a.to_date || today) < hi ? (a.to_date || today) : hi;
@@ -525,7 +547,7 @@ async function onsiteDays(user, f = {}) {
   for (const g of groups.values()) {
     const off = new Set();
     let onBreakToday = false;
-    for (const b of breaks.filter((x) => x.client === g.client && x.eng === g.eng)) {
+    for (const b of breaks.filter((x) => x.client === g.client && x.eng === g.eng && (x.status || 'Approved') === 'Approved')) {
       days(b.from_date, b.to_date).forEach((d) => { if (g.dates.has(d)) off.add(d); });
       if (b.from_date <= today && b.to_date >= today) onBreakToday = true;
     }
@@ -535,12 +557,20 @@ async function onsiteDays(user, f = {}) {
       g.eng, ...locs, lo, hi)).n : 0;
     const active = assign.some((a) => a.client === g.client && a.eng === g.eng && a.work_mode === 'Onsite' && a.from_date <= today && (!a.to_date || a.to_date >= today));
     out.push({
-      client: names.c[g.client] || '-', engineer: names.u[g.eng] || '-', period: g.periods.join(', '),
+      client: `${names.c[g.client] || '-'}${await locSuffix(g)}`, engineer: names.u[g.eng] || '-', period: g.periods.join(', '),
       assigned: g.dates.size, breaks: off.size, net: g.dates.size - off.size, checkedIn,
       today: onBreakToday ? 'On break' : active ? 'Onsite' : 'Not assigned today',
     });
   }
   return out.sort((a, b) => a.client.localeCompare(b.client) || a.engineer.localeCompare(b.engineer));
+}
+
+// " (PUNE, Kondapur)": assigned locations, or all of the client's locations when none was chosen.
+async function locSuffix(g) {
+  const rows = g.locs.size
+    ? await q.all(`SELECT name FROM im_locations WHERE id IN (${[...g.locs].map(() => '?').join(',')}) ORDER BY name`, ...g.locs)
+    : await q.all('SELECT name FROM im_locations WHERE client = ? ORDER BY name', g.client);
+  return rows.length ? ` (${rows.map((r) => r.name).join(', ')})` : '';
 }
 
 router.get('/onsite-days', async (req, res) => res.json(await onsiteDays(req.user, reportFilters(req.query))));

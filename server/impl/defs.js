@@ -76,9 +76,9 @@ const ENTITIES = {
       'assign_role|Role|s|Lead,Support', 'from_date|From date|d*', 'to_date|To date (blank = ongoing)|d'],
   },
   abreaks: {
-    title: 'Breaks (not at client site)', write: ['impl.manage'], label: 'reason', cols: 'client,eng,from_date,to_date,days,reason',
+    title: 'Break requests', write: ['impl.manage', 'impl.work'], owner: 'eng', label: 'reason', cols: 'client,eng,from_date,to_date,days,reason,status,decision',
     fields: ['client|Client|r*|ref:clients', 'eng|Engineer|r*|ref:users', 'from_date|Break from|d*', 'to_date|Break to|d*',
-      'days|Break days|sys', 'reason|Reason|t'],
+      'days|Break days|sys', 'reason|Reason|t*', 'status|Status|sys', 'decision|Approver remarks|sys', 'decided_by|Decided by|sys'],
   },
   templates: {
     title: 'Template library', write: ['impl.manage'], label: 'name', cols: 'name,category,version,file',

@@ -48,7 +48,7 @@ const ROUTES = [
   { path: 'sales-orders', label: 'Sales Orders', icon: 'file', perm: 'impl.view', show: () => can('impl.view') && (can('impl.view_all') || can('salesorder.manage')), group: 'Implementation', render: renderSalesOrders },
   { path: 'assignments', label: 'Engineer Assignments', icon: 'users', perm: 'impl.view', group: 'Implementation', render: renderAssignments },
   { path: 'tasks', label: 'Module Tasks', icon: 'layers', perm: 'impl.view', group: 'Implementation', render: entityPage('tasks', 'Module Tasks', 'Tasks per client location and module. Completing a task needs evidence; it may need approval.') },
-  { path: 'task-approvals', label: 'Task Approvals', icon: 'check', perm: 'task.approve', group: 'Implementation', render: renderTaskApprovals },
+  { path: 'task-approvals', label: 'Approvals', icon: 'check', show: () => can('task.approve') || can('break.approve'), group: 'Implementation', render: renderTaskApprovals },
   { path: 'daily', label: 'Daily Status', icon: 'calendar', perm: 'impl.view', group: 'Implementation', render: entityPage('daily', 'Daily Status', 'Daily work report of each engineer.') },
   { path: 'visits', label: 'Visits & Communication', icon: 'pin', perm: 'impl.view', group: 'Implementation', render: entityPage('visits', 'Visits & Communication', 'Client visits and the communication log.', ['comms']) },
   { path: 'golive', label: 'Go-Live & Training', icon: 'flag', perm: 'impl.view', group: 'Implementation', render: entityPage('golive', 'Go-Live & Training', 'Go-live stages per location (UAT, Go-Live and Handover need a sign-off document) and the training log.', ['training']) },

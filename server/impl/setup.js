@@ -94,6 +94,17 @@ async function setup() {
   await migrateRoles();
   await migrateFaceFlag();
   await migrateEmployees();
+  // Break requests: existing breaks count as approved; Implementation Manager approves new requests.
+  if (!(await q.get("SELECT 1 AS x FROM app_meta WHERE key = 'break_requests_v1'"))) {
+    await q.run("UPDATE im_abreaks SET status = 'Approved' WHERE status IS NULL");
+    const im = await q.get("SELECT id, permissions FROM roles WHERE name = 'Implementation Manager'");
+    if (im) {
+      const p = JSON.parse(im.permissions || '[]');
+      if (!p.includes('break.approve')) p.push('break.approve');
+      await q.run('UPDATE roles SET permissions = ? WHERE id = ?', JSON.stringify(p), im.id);
+    }
+    await q.run("INSERT INTO app_meta (key, value) VALUES ('break_requests_v1', 'done') ON CONFLICT (key) DO NOTHING");
+  }
   // One-off: existing clients without any location get their main location from the client master.
   if (!(await q.get("SELECT 1 AS x FROM app_meta WHERE key = 'default_locations_v1'"))) {
     for (const c of await q.all('SELECT id FROM clients')) await ensureDefaultLocation(c.id, null);

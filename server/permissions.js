@@ -22,6 +22,7 @@ const PERMISSIONS = [
   { key: 'impl.infra', label: 'Infra, servers, hardware and IT contacts', group: 'Implementation' },
   { key: 'credential.view', label: 'Reveal server passwords (every view is logged)', group: 'Implementation' },
   { key: 'task.approve', label: 'Approve / reject completed tasks', group: 'Implementation' },
+  { key: 'break.approve', label: 'Approve / reject break requests', group: 'Implementation' },
   { key: 'salesorder.manage', label: 'Sales orders and their documents', group: 'Implementation' },
   { key: 'amc.manage', label: 'AMC contracts', group: 'Implementation' },
   { key: 'impl.settings', label: 'Implementation masters, standard tasks and settings', group: 'Implementation' },

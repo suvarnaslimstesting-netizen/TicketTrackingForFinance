@@ -22,8 +22,16 @@ const BADGE = {
 const badge = (v) => (v ? `<span class="badge ${BADGE[v] || 'off'}">${esc(v)}</span>` : '—');
 const bar = (p) => `<span class="pbar"><i style="width:${Math.max(0, Math.min(100, p || 0))}%"></i></span> ${fmtNum(p || 0)}%`;
 
+// "Ruby Hall Clinic (PUNE)": client name with its location(s).
+function clientLabel(id) {
+  const c = LK.clients.find((y) => y.id === id);
+  if (!c) return id ? `#${id}` : '';
+  const locs = LK.locations.filter((l) => l.client === id).map((l) => l.name);
+  return locs.length ? `${c.name} (${locs.join(', ')})` : c.name;
+}
 function refLabel(ref, v) {
   if (v === null || v === undefined || v === '') return '';
+  if (ref === 'clients') return clientLabel(v);
   const list = { clients: LK.clients, locations: LK.locations, users: LK.users, templates: LK.templates, sorders: LK.sorders }[ref] || [];
   const x = list.find((y) => y.id === v);
   if (!x) return `#${v}`;
@@ -36,6 +44,7 @@ function cell(f, row) {
   if (f.type === 'f') return v ? fileBtn(v, row[`${f.key}_name`]) : '—';
   if (f.type === 'p') return row[`${f.key}_set`] ? `•••••• ${can('credential.view') ? `<button type="button" class="btn btn-sm btn-ghost" data-reveal="${row.id}">Reveal</button>` : ''}` : '—';
   if (v === null || v === undefined || v === '') return f.type === 'c' ? 'No' : '—';
+  if (f.ref === 'clients' && 'loc' in row) return esc((LK.clients.find((c) => c.id === v) || {}).name || refLabel(f.ref, v));
   if (f.type === 'r' || f.type === 'h') return esc(refLabel(f.ref, v));
   if (f.type === 'x') return (v || []).map((m) => `<span class="tag">${esc(m)}</span>`).join(' ');
   if (f.type === 'd') return fmtDate(v);
@@ -118,7 +127,7 @@ function options(f) {
 function refOptions(f, value, clientId) {
   let list = { clients: LK.clients, locations: LK.locations, users: LK.users.filter((u) => u.status === 'Active' || u.id === value), templates: LK.templates, sorders: LK.sorders }[f.ref] || [];
   if (f.ref === 'locations') list = clientId ? list.filter((l) => l.client === +clientId) : [];
-  return `<option value="">— Select —</option>${list.map((x) => `<option value="${x.id}" ${x.id === value ? 'selected' : ''}>${esc(f.ref === 'templates' ? `${x.name} ${x.version}` : x.name)}${f.ref === 'users' && x.role ? ` · ${esc(x.role)}` : ''}</option>`).join('')}`;
+  return `<option value="">— Select —</option>${list.map((x) => `<option value="${x.id}" ${x.id === value ? 'selected' : ''}>${esc(f.ref === 'templates' ? `${x.name} ${x.version}` : f.ref === 'clients' ? clientLabel(x.id) : x.name)}${f.ref === 'users' && x.role ? ` · ${esc(x.role)}` : ''}</option>`).join('')}`;
 }
 
 function input(f, v, row, fixed) {
@@ -340,6 +349,7 @@ export async function renderMyDay(root) {
         ${ent('training')?.canWrite ? `<button class="btn" data-new="training">+ Training</button>` : ''}
         ${ent('issues')?.canWrite ? `<button class="btn" data-new="issues">+ Issue / CR</button>` : ''}
         ${ent('visits')?.canWrite ? `<button class="btn" data-new="visits">+ Plan visit</button>` : ''}
+        ${ent('abreaks')?.canWrite ? `<button class="btn" data-break>+ Request break</button>` : ''}
         ${state.user.face_attendance ? `<a class="btn" href="#/attendance">${icon('user')} Attendance</a>` : ''}
       </div></div>
     <div class="card"><div class="card-head"><h3>Tasks due or overdue (next 3 days)</h3></div>${tbl(['Location', 'Module', 'Task', 'Target', 'Status', ''], d.tasks.map((t) => [nl(t.client, t.loc), esc(t.module), esc(t.task), fmtDate(t.target_on) + (t.target_on < d.today ? ' <span class="badge bad">Overdue</span>' : ''), badge(t.status), btn('tasks', t.id, 'Update')]))}</div>
@@ -354,6 +364,7 @@ export async function renderMyDay(root) {
     openForm(k, all[k].find((x) => x.id === +id), {}, again);
   }));
   root.querySelectorAll('[data-new]').forEach((b) => b.addEventListener('click', () => openForm(b.dataset.new, null, {}, again, { work_date: d.today })));
+  root.querySelector('[data-break]')?.addEventListener('click', () => openForm('abreaks', null, can('impl.manage') ? {} : { eng: META.userId }, () => toast('Break request sent for approval.')));
 }
 
 /* ------------------------------- Clients / 360 ------------------------------ */
@@ -475,15 +486,43 @@ function bulkAdd(kind, clientId, locs, done) {
 
 /* ------------------------------ Task approvals ------------------------------ */
 
+// Approve / reject buttons for break requests (event delegation, works after the table redraws).
+function bindBreakDecisions(host, done) {
+  host.addEventListener('click', async (ev) => {
+    const ok = ev.target.closest('[data-bok]');
+    const no = ev.target.closest('[data-bno]');
+    if (!ok && !no) return;
+    try {
+      if (ok) {
+        await api(`/impl/breaks/${ok.dataset.bok}/approve`, { method: 'POST', body: {} });
+        toast('Break approved.');
+      } else {
+        const reason = await confirmDialog({ title: 'Reject break request', message: 'The employee will see your reason.', confirmText: 'Reject', danger: true, reasonLabel: 'Reason' });
+        if (!reason) return;
+        await api(`/impl/breaks/${no.dataset.bno}/reject`, { method: 'POST', body: { reason } });
+        toast('Break rejected.');
+      }
+      done();
+    } catch (err) { toast(err.message, 'err'); }
+  });
+}
+
 export async function renderTaskApprovals(root) {
   await boot();
-  const rows = await api('/impl/approvals');
-  root.innerHTML = pageHead('Task Approvals', `Completed tasks waiting for approval (global setting: ${META.settings.approval_global === '1' ? 'ON' : 'OFF'}).`) + `
+  const rows = can('task.approve') ? await api('/impl/approvals') : [];
+  const breaks = can('break.approve') ? await api('/impl/breaks/pending') : [];
+  root.innerHTML = pageHead('Approvals', 'Break requests from employees and completed tasks waiting for approval.') + `
+    ${can('break.approve') ? `<div class="card" data-breaks><div class="card-head"><h3>Break requests (${breaks.length})</h3></div><div class="table-wrap">${breaks.length ? `<table class="tbl tbl-compact"><thead><tr><th>Employee</th><th>Client</th><th>From</th><th>To</th><th class="num">Days</th><th>Reason</th><th>Requested</th><th class="row-actions">Action</th></tr></thead><tbody>
+      ${breaks.map((b) => `<tr><td><b>${esc(refLabel('users', b.eng))}</b></td><td>${esc(refLabel('clients', b.client))}</td><td>${fmtDate(b.from_date)}</td><td>${fmtDate(b.to_date)}</td><td class="num">${esc(b.days)}</td><td>${esc(b.reason || '—')}</td><td>${fmtDateTime(b.created_at)}</td>
+        <td class="row-actions"><button class="btn btn-sm btn-primary" data-bok="${b.id}">Approve</button> <button class="btn btn-sm btn-danger" data-bno="${b.id}">Reject</button></td></tr>`).join('')}</tbody></table>` : '<div class="empty small"><b>No break requests waiting</b></div>'}</div></div>` : ''}
+    ${can('task.approve') ? `<h2 class="section-h">Completed tasks (global approval: ${META.settings.approval_global === '1' ? 'ON' : 'OFF'})</h2>` : ''}` + (can('task.approve') ? `
     <div class="card"><div class="table-wrap">${rows.length ? `<table class="tbl tbl-compact"><thead><tr><th>Client</th><th>Location</th><th>Module</th><th>Task</th><th>Completed</th><th>Evidence</th><th class="row-actions">Action</th></tr></thead><tbody>
       ${rows.map((t) => `<tr><td>${esc(refLabel('clients', t.client))}</td><td>${esc(refLabel('locations', t.loc) || '—')}</td><td>${esc(t.module)}</td><td><b>${esc(t.task)}</b></td><td>${fmtDate(t.done_on)}</td><td>${t.evidence ? fileBtn(t.evidence, t.evidence_name) : '—'}</td>
-        <td class="row-actions">${can('task.approve') ? `<button class="btn btn-sm btn-primary" data-ok="${t.id}">Approve</button> <button class="btn btn-sm btn-danger" data-no="${t.id}">Reject</button>` : 'No permission'}</td></tr>`).join('')}</tbody></table>` : '<div class="empty"><b>Nothing to approve</b>Completed tasks needing approval appear here.</div>'}</div></div>`;
+        <td class="row-actions">${can('task.approve') ? `<button class="btn btn-sm btn-primary" data-ok="${t.id}">Approve</button> <button class="btn btn-sm btn-danger" data-no="${t.id}">Reject</button>` : 'No permission'}</td></tr>`).join('')}</tbody></table>` : '<div class="empty"><b>Nothing to approve</b>Completed tasks needing approval appear here.</div>'}</div></div>` : '');
   fileClick(root);
   const again = () => renderTaskApprovals(root);
+  const bh = root.querySelector('[data-breaks]');
+  if (bh) bindBreakDecisions(bh, again);
   root.querySelectorAll('[data-ok]').forEach((b) => b.addEventListener('click', async () => {
     try { await api(`/impl/tasks/${b.dataset.ok}/approve`, { method: 'POST', body: {} }); toast('Approved.'); again(); } catch (err) { toast(err.message, 'err'); }
   }));
@@ -645,7 +684,7 @@ export async function renderAssignments(root) {
     <div class="card" data-sum><div class="card-head"><h3>Onsite days by client &amp; employee</h3>
       <div class="actions"><button class="btn btn-sm" data-xl>${icon('excel')} Excel</button></div></div>
       <form class="card-body filters" data-f novalidate style="padding-bottom:0">
-        <div class="field"><label>Client</label><select class="input" name="client"><option value="">All clients</option>${LK.clients.map((c) => `<option value="${c.id}" ${String(c.id) === onsiteF.client ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
+        <div class="field"><label>Client</label><select class="input" name="client"><option value="">All clients</option>${LK.clients.map((c) => `<option value="${c.id}" ${String(c.id) === onsiteF.client ? 'selected' : ''}>${esc(clientLabel(c.id))}</option>`).join('')}</select></div>
         <div class="field"><label>Engineer</label><select class="input" name="eng"><option value="">All engineers</option>${LK.users.filter((u) => u.status === 'Active').map((u) => `<option value="${u.id}" ${String(u.id) === onsiteF.eng ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></div>
         <div class="field"><label>From date</label><input class="input" type="date" name="from" value="${esc(onsiteF.from)}"></div>
         <div class="field"><label>To date</label><input class="input" type="date" name="to" value="${esc(onsiteF.to)}"></div>
@@ -666,6 +705,17 @@ export async function renderAssignments(root) {
   root.querySelector('[data-f]').addEventListener('change', (e) => { onsiteF[e.target.name] = e.target.value; sum(); });
   root.querySelector('[data-xl]').addEventListener('click', () => download(`/impl/reports/onsite${qs({ ...onsiteF, format: 'xlsx' })}`).catch((err) => toast(err.message, 'err')));
   await crudCard(root.querySelector('[data-a]'), 'assign', { onChange: sum });
-  if (META.entities.abreaks) await crudCard(root.querySelector('[data-b]'), 'abreaks', { title: 'Breaks (engineer not at client site)', onChange: sum });
+  if (META.entities.abreaks) {
+    const host = root.querySelector('[data-b]');
+    const mine = !can('impl.manage');
+    const breaks = await crudCard(host, 'abreaks', {
+      title: mine ? 'My break requests (days not at the client site)' : 'Break requests (engineer not at client site)',
+      fixed: mine ? { eng: META.userId } : {},
+      onChange: sum,
+      extraActions: (r) => (can('break.approve') && r.status === 'Pending'
+        ? `<button class="btn btn-sm btn-primary" data-bok="${r.id}">Approve</button> <button class="btn btn-sm btn-danger" data-bno="${r.id}">Reject</button> ` : ''),
+    });
+    bindBreakDecisions(host, () => { breaks.reload(); });
+  }
   await sum();
 }
