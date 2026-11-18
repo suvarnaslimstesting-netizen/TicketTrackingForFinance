@@ -13,6 +13,7 @@ const COLUMNS = [
   { key: 'ticket_number', label: 'Ticket Number' },
   { key: 'client_name', label: 'Client Name' },
   { key: 'approved_man_days', label: 'Approved Man-Days', cls: 'num' },
+  { key: 'given_man_days', label: 'Given Man-Days', cls: 'num' },
   { key: 'approved_by', label: 'Approved By' },
   { key: 'approved_date', label: 'Approved Date' },
   { key: 'remarks', label: 'Remarks', nosort: true },
@@ -26,7 +27,7 @@ const ACTION_LABEL = {
   CREATE: 'Approval submitted', UPDATE: 'Approval details modified', ADDITIONAL_APPROVAL: 'Additional man-days approved', DELETE: 'Record deleted',
 };
 const FIELD_LABEL = {
-  ticket_number: 'Ticket Number', client_id: 'Client', ticket_type: 'Ticket Type', department_id: 'Department', approved_man_days: 'Approved Man-Days',
+  ticket_number: 'Ticket Number', client_id: 'Client', ticket_type: 'Ticket Type', department_id: 'Department', approved_man_days: 'Approved Man-Days', given_man_days: 'Given Man-Days',
   approved_by: 'Approved By', approved_date: 'Approved Date', remarks: 'Remarks', additional_man_days: 'Additional Man-Days',
 };
 
@@ -184,6 +185,7 @@ function renderTable(root, data, freshIds, reload) {
             <td class="nowrap"><button class="ticket ticket-link" data-view="${r.id}">${esc(r.ticket_number)}</button>${r.ticket_type ? `<span class="sub">${esc(r.ticket_type)}</span>` : ''}</td>
             <td>${esc(r.client_name)}${r.department_names ? `<span class="sub">${esc(r.department_names)}</span>` : ''}</td>
             <td class="num"><span class="md-pill">${fmtNum(r.approved_man_days)}</span></td>
+            <td class="num">${r.given_man_days == null ? '—' : fmtNum(r.given_man_days)}</td>
             <td>${esc(r.approved_by)}</td>
             <td class="nowrap">${fmtDate(r.approved_date)}</td>
             <td class="remarks"><span class="clip" title="${esc(r.remarks)}">${esc(r.remarks) || '—'}</span></td>
@@ -233,6 +235,8 @@ export async function openApprovalForm({ record = null, onSaved } = {}) {
           ${!clients.length ? '<span class="help">No active clients. Ask the administrator to add clients.</span>' : ''}</div>
         <div class="field"><label for="a-md">Approved Man-Days <span class="req">*</span></label>
           <input id="a-md" class="input" name="approved_man_days" inputmode="decimal" placeholder="e.g. 5 or 2.5" value="${r.approved_man_days ?? ''}"></div>
+        <div class="field"><label for="a-gmd">Given Man-Days</label>
+          <input id="a-gmd" class="input" name="given_man_days" inputmode="decimal" placeholder="e.g. 5 or 2.5 (optional)" value="${r.given_man_days ?? ''}"></div>
         <div class="field"><label for="a-by">Approved By <span class="req">*</span></label>
           <input id="a-by" class="input" name="approved_by" maxlength="150" placeholder="Client person who approved" value="${esc(r.approved_by)}"></div>
         <div class="field"><label for="a-date">Approved Date <span class="req">*</span></label>
@@ -322,6 +326,7 @@ export async function openApprovalForm({ record = null, onSaved } = {}) {
     if (!v.client_id) return 'Client Name is required.';
     if (clientHasDepts && !(v.department_ids || []).length) return 'Please select at least one Department.';
     if (!/^\d+(\.\d{1,2})?$/.test(v.approved_man_days.trim()) || !(Number(v.approved_man_days) > 0)) return 'Approved Man-Days must be a positive number (up to 2 decimals).';
+    if (v.given_man_days.trim() && (!/^\d+(\.\d{1,2})?$/.test(v.given_man_days.trim()) || !(Number(v.given_man_days) > 0))) return 'Given Man-Days must be a positive number (up to 2 decimals).';
     if (!v.approved_by.trim()) return 'Approved By is required.';
     if (!v.approved_date) return 'Approved Date is required.';
     if (v.approved_date > today()) return 'Approved Date cannot be in the future.';
@@ -442,6 +447,7 @@ async function openDetails(id, reload) {
         <div><dt>Ticket Number</dt><dd class="ticket">${esc(r.ticket_number)}</dd></div>
         <div><dt>Client Name</dt><dd>${esc(r.client_name)}</dd></div>
         <div><dt>Approved Man-Days</dt><dd style="font-size:20px;font-weight:700">${fmtNum(r.approved_man_days)}</dd></div>
+        <div><dt>Given Man-Days</dt><dd>${r.given_man_days == null ? '—' : fmtNum(r.given_man_days)}</dd></div>
         <div><dt>Approved By</dt><dd>${esc(r.approved_by)}</dd></div>
         <div><dt>Approved Date</dt><dd>${fmtDate(r.approved_date)}</dd></div>
         <div><dt>Ticket Type</dt><dd>${esc(r.ticket_type || '—')}</dd></div>

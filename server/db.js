@@ -138,6 +138,7 @@ CREATE TABLE IF NOT EXISTS approvals (
   deleted_at        TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_approvals_ticket_client ON approvals (ticket_number, client_id) WHERE is_deleted = 0;
+ALTER TABLE approvals ADD COLUMN IF NOT EXISTS given_man_days DOUBLE PRECISION CHECK (given_man_days > 0);
 CREATE INDEX IF NOT EXISTS ix_approvals_date ON approvals (approved_date);
 CREATE INDEX IF NOT EXISTS ix_approvals_client ON approvals (client_id);
 

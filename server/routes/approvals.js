@@ -12,7 +12,7 @@ const SELECT = `
          (SELECT string_agg(d.name::text, ', ' ORDER BY d.name) FROM approval_departments ad JOIN departments d ON d.id = ad.department_id
            WHERE ad.approval_id = a.id) AS department_names,
          (SELECT string_agg(ad.department_id::text, ',') FROM approval_departments ad WHERE ad.approval_id = a.id) AS department_ids_csv,
-         a.approved_man_days, a.approved_by, a.approved_date, a.remarks,
+         a.approved_man_days, a.given_man_days, a.approved_by, a.approved_date, a.remarks,
          a.created_by, cu.employee_name AS created_by_name, a.created_at,
          a.updated_by, uu.employee_name AS updated_by_name, a.updated_at
     FROM approvals a
@@ -60,7 +60,7 @@ async function saveDepartments(approvalId, ids) {
 }
 
 const SORTS = {
-  ticket_number: 'a.ticket_number', client_name: 'c.name', approved_man_days: 'a.approved_man_days',
+  ticket_number: 'a.ticket_number', client_name: 'c.name', approved_man_days: 'a.approved_man_days', given_man_days: 'a.given_man_days',
   approved_by: 'a.approved_by', approved_date: 'a.approved_date', created_at: 'a.created_at', updated_at: 'a.updated_at',
   created_by_name: 'cu.employee_name', updated_by_name: 'uu.employee_name',
 };
@@ -147,6 +147,7 @@ function readApproval(body) {
   return {
     ticket_number, client_id, approved_by, remarks, ticket_type, department_ids: parseIds(body.department_ids),
     approved_man_days: parseManDays(body.approved_man_days),
+    given_man_days: str(body.given_man_days) ? parseManDays(body.given_man_days, 'Given Man-Days') : null,
     approved_date: parseApprovedDate(body.approved_date),
   };
 }
@@ -236,15 +237,16 @@ router.post('/approvals', requirePerm('approval.add'), async (req, res) => {
 
   const id = await tx(async () => {
     const r = await q.insert(
-      `INSERT INTO approvals (ticket_number, client_id, ticket_type, approved_man_days, approved_by, approved_date, remarks, created_by)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      a.ticket_number, a.client_id, a.ticket_type, a.approved_man_days, a.approved_by, a.approved_date, a.remarks, req.user.id
+      `INSERT INTO approvals (ticket_number, client_id, ticket_type, approved_man_days, given_man_days, approved_by, approved_date, remarks, created_by)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      a.ticket_number, a.client_id, a.ticket_type, a.approved_man_days, a.given_man_days, a.approved_by, a.approved_date, a.remarks, req.user.id
     );
     const id = r.lastInsertRowid;
     await saveDepartments(id, a.department_ids);
     await audit({
       entity: 'APPROVAL', entityId: id, action: 'CREATE', ticket: a.ticket_number, prev: null, next: a.approved_man_days,
       changes: {
+        given_man_days: { from: null, to: a.given_man_days },
         approved_by: { from: null, to: a.approved_by }, approved_date: { from: null, to: a.approved_date },
         departments: { from: null, to: (await deptNames(a.department_ids)).join(', ') || null },
       },
@@ -269,7 +271,7 @@ router.put('/approvals/:id', requirePerm('approval.edit'), async (req, res) => {
   }
   await checkDepartments(a.department_ids, a.client_id, a.client_id === before.client_id ? before.department_ids : []);
 
-  const fields = ['ticket_number', 'client_id', 'ticket_type', 'approved_man_days', 'approved_by', 'approved_date', 'remarks'];
+  const fields = ['ticket_number', 'client_id', 'ticket_type', 'approved_man_days', 'given_man_days', 'approved_by', 'approved_date', 'remarks'];
   const changes = {};
   for (const f of fields) {
     if (String(before[f] ?? '') !== String(a[f] ?? '')) changes[f] = { from: before[f], to: a[f] };
@@ -282,9 +284,9 @@ router.put('/approvals/:id', requirePerm('approval.edit'), async (req, res) => {
 
   await tx(async () => {
     await q.run(
-      `UPDATE approvals SET ticket_number = ?, client_id = ?, ticket_type = ?, approved_man_days = ?, approved_by = ?,
+      `UPDATE approvals SET ticket_number = ?, client_id = ?, ticket_type = ?, approved_man_days = ?, given_man_days = ?, approved_by = ?,
               approved_date = ?, remarks = ?, updated_by = ?, updated_at = ${NOW} WHERE id = ?`,
-      a.ticket_number, a.client_id, a.ticket_type, a.approved_man_days, a.approved_by, a.approved_date, a.remarks, req.user.id, before.id
+      a.ticket_number, a.client_id, a.ticket_type, a.approved_man_days, a.given_man_days, a.approved_by, a.approved_date, a.remarks, req.user.id, before.id
     );
     await saveDepartments(before.id, a.department_ids);
     await audit({

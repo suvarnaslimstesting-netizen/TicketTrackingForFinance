@@ -26,6 +26,7 @@ const COLUMNS = [
   { header: 'Ticket Type', key: 'ticket_type', width: 14, pdf: 52 },
   { header: 'Department(s)', key: 'department_names', width: 26, pdf: 72 },
   { header: 'Approved Man-Days', key: 'approved_man_days', width: 12, pdf: 46, num: true },
+  { header: 'Given Man-Days', key: 'given_man_days', width: 12, pdf: 42, num: true },
   { header: 'Approved By', key: 'approved_by', width: 22, pdf: 66 },
   { header: 'Approved Date', key: 'approved_date', width: 14, pdf: 52, date: true },
   { header: 'Remarks', key: 'remarks', width: 40, pdf: 120 },
