@@ -380,7 +380,7 @@ router.get('/audit', requirePerm('audit.view'), async (req, res) => {
   const params = [];
   const isAdmin = req.user.permissions.includes('user.manage') || req.user.permissions.includes('role.manage');
   // Non-admin users only see the approval trail, not user/role administration events.
-  if (!isAdmin) where.push("entity IN ('APPROVAL','QUOTATION','PO','INVOICE')");
+  if (!isAdmin) where.push("entity IN ('APPROVAL','QUOTATION','PO','INVOICE','IMPLEMENTATION','ATTENDANCE')");
   if (req.query.entity) { where.push('entity = ?'); params.push(String(req.query.entity)); }
   if (req.query.action) { where.push('action = ?'); params.push(String(req.query.action)); }
   const ticket = str(req.query.ticket);

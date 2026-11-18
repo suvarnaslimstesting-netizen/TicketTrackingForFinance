@@ -3,6 +3,10 @@ import { renderDashboard } from './views/dashboard.js';
 import { renderApprovals, openApprovalForm } from './views/approvals.js';
 import { renderDepartments, renderRoles, renderUsers, renderClients, renderCompany } from './views/admin.js';
 import { renderBilling } from './views/billing.js';
+import {
+  renderImplDashboard, renderMyDay, renderImplClients, renderTaskApprovals, renderImplReports, renderImplMasters, renderSalesOrders, entityPage, resetImplCache,
+} from './views/impl.js';
+import { renderAttendance, renderTeamAttendance, startLocationPings, stopLocationPings } from './views/attendance.js';
 import { renderAudit } from './views/audit.js';
 
 const app = document.getElementById('app');
@@ -11,6 +15,26 @@ const ROUTES = [
   { path: 'dashboard', label: 'Dashboard', icon: 'dashboard', perm: 'dashboard.view', group: 'Overview', render: renderDashboard },
   { path: 'approvals', label: 'Man-Day Approvals', icon: 'ticket', perm: 'approval.view', group: 'Overview', render: renderApprovals },
   { path: 'billing', label: 'Quotation & Billing', icon: 'invoice', perm: 'billing.view', group: 'Billing', render: renderBilling },
+  // Implementation
+  { path: 'myday', label: 'My Day', icon: 'sun', perm: 'impl.work', show: () => can('impl.work') && !can('impl.view_all'), group: 'Implementation', render: renderMyDay },
+  { path: 'impl', label: 'Implementation Dashboard', icon: 'trend', perm: 'impl.view', group: 'Implementation', render: renderImplDashboard },
+  { path: 'impl-clients', label: 'Clients 360', icon: 'briefcase', perm: 'impl.view', group: 'Implementation', render: renderImplClients },
+  { path: 'sales-orders', label: 'Sales Orders', icon: 'file', perm: 'impl.view', show: () => can('impl.view') && (can('impl.view_all') || can('salesorder.manage')), group: 'Implementation', render: renderSalesOrders },
+  { path: 'assignments', label: 'Engineer Assignments', icon: 'users', perm: 'impl.view', group: 'Implementation', render: entityPage('assign', 'Engineer Assignments', 'Which engineer works at which client location, and when.') },
+  { path: 'tasks', label: 'Module Tasks', icon: 'layers', perm: 'impl.view', group: 'Implementation', render: entityPage('tasks', 'Module Tasks', 'Tasks per client location and module. Completing a task needs evidence; it may need approval.') },
+  { path: 'task-approvals', label: 'Task Approvals', icon: 'check', perm: 'task.approve', group: 'Implementation', render: renderTaskApprovals },
+  { path: 'daily', label: 'Daily Status', icon: 'calendar', perm: 'impl.view', group: 'Implementation', render: entityPage('daily', 'Daily Status', 'Daily work report of each engineer.') },
+  { path: 'visits', label: 'Visits & Communication', icon: 'pin', perm: 'impl.view', group: 'Implementation', render: entityPage('visits', 'Visits & Communication', 'Client visits and the communication log.', ['comms']) },
+  { path: 'golive', label: 'Go-Live & Training', icon: 'flag', perm: 'impl.view', group: 'Implementation', render: entityPage('golive', 'Go-Live & Training', 'Go-live stages per location (UAT, Go-Live and Handover need a sign-off document) and the training log.', ['training']) },
+  { path: 'issues', label: 'Issues & CRs', icon: 'bug', perm: 'impl.view', group: 'Implementation', render: entityPage('issues', 'Issues & Change Requests', 'Client issues, change requests and queries.') },
+  { path: 'infra', label: 'Infra & Servers', icon: 'server', perm: 'impl.view', group: 'Implementation', render: entityPage('infra', 'Infra & Servers', 'Server requirements, credentials (encrypted), hardware readiness and IT contacts.', ['servers', 'hw', 'contacts']) },
+  { path: 'templates', label: 'Templates', icon: 'file', perm: 'impl.view', group: 'Implementation', render: entityPage('templates', 'Template Library', 'Master-data, consent and report templates shared with clients.') },
+  { path: 'amc', label: 'AMC', icon: 'shield', perm: 'impl.view', show: () => can('impl.view') && (can('impl.view_all') || can('amc.manage')), group: 'Implementation', render: entityPage('amc', 'AMC', 'Annual maintenance contracts and renewals.') },
+  { path: 'impl-reports', label: 'Implementation Reports', icon: 'excel', perm: 'impl.view', group: 'Implementation', render: renderImplReports },
+  { path: 'impl-masters', label: 'Implementation Masters', icon: 'settings', perm: 'impl.settings', show: () => can('impl.settings') || can('impl.manage'), group: 'Implementation', render: renderImplMasters },
+  // Attendance
+  { path: 'attendance', label: 'My Attendance', icon: 'face', perm: 'attendance.self', show: () => can('attendance.self') && state.user.role_name !== 'Admin', group: 'Attendance', render: renderAttendance },
+  { path: 'team-attendance', label: 'Team Attendance', icon: 'map', perm: 'attendance.view', group: 'Attendance', render: renderTeamAttendance },
   { path: 'audit', label: 'Audit History', icon: 'history', perm: 'audit.view', group: 'Overview', render: renderAudit },
   { path: 'departments', label: 'Departments', icon: 'building', perm: 'department.manage', group: 'Administration', render: renderDepartments },
   { path: 'roles', label: 'Roles & Permissions', icon: 'shield', perm: 'role.manage', group: 'Administration', render: renderRoles },
@@ -141,6 +165,8 @@ function openChangePassword(forced = false) {
 async function logout() {
   try { await api('/auth/logout', { method: 'POST', body: {} }); } catch { /* ignore */ }
   state.user = null;
+  stopLocationPings();
+  resetImplCache();
   document.getElementById('modal-root').innerHTML = '';
   location.hash = '';
   renderLogin('You have been signed out.');
@@ -154,7 +180,7 @@ function greeting() {
 }
 
 function allowedRoutes() {
-  return ROUTES.filter((r) => can(r.perm));
+  return ROUTES.filter((r) => (r.show ? r.show() : can(r.perm)));
 }
 
 function renderShell() {
@@ -233,7 +259,8 @@ async function route() {
   host.innerHTML = '<div class="empty">Loading…</div>';
   view.replaceChildren(host);
   try {
-    const teardown = (await r.render(host)) || null;
+    const result = await r.render(host);
+    const teardown = typeof result === 'function' ? result : null;
     if (host.isConnected) cleanup = teardown;
     else if (teardown) teardown();
   } catch (err) {
@@ -248,8 +275,10 @@ async function start() {
     return;
   }
   await loadLookups(true);
+  resetImplCache();
   renderShell();
   route();
+  if (can('attendance.self')) startLocationPings();
 }
 
 window.addEventListener('hashchange', route);

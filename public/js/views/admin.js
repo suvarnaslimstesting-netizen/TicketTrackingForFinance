@@ -262,6 +262,12 @@ export async function renderClients(root) {
           <div class="dept-chips">${options.map((d) => `<label class="dept-chip"><input type="checkbox" name="department_ids" value="${d.id}" ${(c.department_ids || []).includes(d.id) ? 'checked' : ''}><span>${esc(d.name)}</span></label>`).join('')}</div>
           <div class="dept-tools"><button type="button" class="btn btn-sm btn-ghost" data-dall>Select all</button><button type="button" class="btn btn-sm btn-ghost" data-dnone>Clear</button></div>
         </div></div>
+      <div class="field full"><div class="section-title" style="margin-top:4px">Implementation details</div></div>
+      <div class="field"><label>Client Code</label><input class="input" name="client_code" maxlength="30" value="${esc(c.client_code)}"></div>
+      <div class="field"><label>Client Type</label><select class="input" name="client_type"><option value="">Select</option>${['Hospital', 'Medical College', 'Clinic', 'Other'].map((t) => `<option ${t === c.client_type ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      <div class="field"><label>City</label><input class="input" name="city" maxlength="100" value="${esc(c.city)}"></div>
+      <div class="field"><label>Phone</label><input class="input" name="phone" maxlength="20" value="${esc(c.phone)}"></div>
+      <div class="field"><label>Task approval</label><select class="input" name="task_approval">${['Default', 'On', 'Off'].map((t) => `<option ${t === (c.task_approval || 'Default') ? 'selected' : ''}>${t}</option>`).join('')}</select><span class="help">Default follows the global setting in Implementation Masters.</span></div>
       <div class="field full"><div class="section-title" style="margin-top:4px">Billing details (used on quotations &amp; invoices)</div></div>
       <div class="field full"><label>Billing Address</label><textarea class="input" name="billing_address" maxlength="500" placeholder="Registered / billing address">${esc(c.billing_address)}</textarea></div>
       <div class="field"><label>GSTIN</label><input class="input" name="gstin" maxlength="15" style="text-transform:uppercase" placeholder="e.g. 27ABCDE1234F1Z5" value="${esc(c.gstin)}"></div>

@@ -296,13 +296,20 @@ async function readClient(body) {
   let state_code = optState(body.state_code);
   if (gstin && !state_code) state_code = optState(gstin.slice(0, 2));
   if (gstin && state_code && gstin.slice(0, 2) !== state_code) throw httpError(400, 'The GSTIN does not belong to the selected State (first 2 digits are the state code).');
+  const task_approval = str(body.task_approval) || 'Default';
+  if (!['Default', 'On', 'Off'].includes(task_approval)) throw httpError(400, 'Invalid task approval setting.');
+  const client_type = str(body.client_type) || null;
+  if (client_type && !['Hospital', 'Medical College', 'Clinic', 'Other'].includes(client_type)) throw httpError(400, 'Invalid client type.');
+  const phone = str(body.phone);
+  if (phone && !/^[0-9+\-\s]{6,20}$/.test(phone)) throw httpError(400, 'Phone number is not valid.');
   return {
     name, description: str(body.description), status: statusOf(body.status), department_ids,
+    client_code: optText(body.client_code, 'Client Code', 30), client_type, city: optText(body.city, 'City', 100), phone: phone || null, task_approval,
     billing_address: optText(body.billing_address, 'Billing Address', 500), gstin, state_code,
     contact_person: optText(body.contact_person, 'Contact Person', 150), contact_email: optEmails(body.contact_email, 'Contact Email'),
   };
 }
-const CLIENT_BILLING = ['billing_address', 'gstin', 'state_code', 'contact_person', 'contact_email'];
+const CLIENT_BILLING = ['billing_address', 'gstin', 'state_code', 'contact_person', 'contact_email', 'client_code', 'client_type', 'city', 'phone', 'task_approval'];
 
 async function saveClientDepts(clientId, ids) {
   await q.run('DELETE FROM client_departments WHERE client_id = ?', clientId);
@@ -313,8 +320,9 @@ router.post('/clients', requirePerm('client.manage'), async (req, res) => {
   const c = await readClient(req.body);
   const id = await tx(async () => {
     const id = (await q.insert(
-      'INSERT INTO clients (name, description, status, billing_address, gstin, state_code, contact_person, contact_email) VALUES (?,?,?,?,?,?,?,?)',
-      c.name, c.description, c.status, c.billing_address, c.gstin, c.state_code, c.contact_person, c.contact_email
+      `INSERT INTO clients (name, description, status, billing_address, gstin, state_code, contact_person, contact_email, client_code, client_type, city, phone, task_approval)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      c.name, c.description, c.status, c.billing_address, c.gstin, c.state_code, c.contact_person, c.contact_email, c.client_code, c.client_type, c.city, c.phone, c.task_approval
     )).lastInsertRowid;
     await saveClientDepts(id, c.department_ids);
     await audit({
@@ -334,8 +342,9 @@ router.put('/clients/:id', requirePerm('client.manage'), async (req, res) => {
   await tx(async () => {
     await q.run(
       `UPDATE clients SET name = ?, description = ?, status = ?, billing_address = ?, gstin = ?, state_code = ?, contact_person = ?, contact_email = ?,
-              updated_at = ${NOW} WHERE id = ?`,
-      c.name, c.description, c.status, c.billing_address, c.gstin, c.state_code, c.contact_person, c.contact_email, before.id
+              client_code = ?, client_type = ?, city = ?, phone = ?, task_approval = ?, updated_at = ${NOW} WHERE id = ?`,
+      c.name, c.description, c.status, c.billing_address, c.gstin, c.state_code, c.contact_person, c.contact_email,
+      c.client_code, c.client_type, c.city, c.phone, c.task_approval, before.id
     );
     await saveClientDepts(before.id, c.department_ids);
     const changes = diff(before, c, ['name', 'description', 'status', ...CLIENT_BILLING]);
@@ -353,6 +362,9 @@ router.delete('/clients/:id', requirePerm('client.manage'), async (req, res) => 
   if (!c) throw httpError(404, 'Client not found.');
   if ((await q.get('SELECT COUNT(*) c FROM approvals WHERE client_id = ?', c.id)).c) {
     throw httpError(409, 'This client has approval records. Mark it Inactive instead.');
+  }
+  if (await require('../impl/engine').clientInUse(c.id)) {
+    throw httpError(409, 'This client has implementation records. Mark it Inactive instead.');
   }
   await q.run('DELETE FROM clients WHERE id = ?', c.id);
   await audit({ entity: 'CLIENT', entityId: c.id, action: 'DELETE', remarks: `Client "${c.name}" deleted`, user: req.user });

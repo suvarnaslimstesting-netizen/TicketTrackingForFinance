@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const express = require('express');
 const session = require('express-session');
 const PgSession = require('connect-pg-simple')(session);
+const { setup: setupImpl } = require('./impl/setup');
 const { pool, init } = require('./db');
 const { requireAuth } = require('./auth');
 
@@ -28,7 +29,9 @@ app.use((req, res, next) => {
   res.set('X-Content-Type-Options', 'nosniff');
   res.set('X-Frame-Options', 'DENY');
   res.set('Referrer-Policy', 'same-origin');
-  res.set('Content-Security-Policy', "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'");
+  // Map tiles come from OpenStreetMap; face recognition runs on WebGL/WASM in the browser.
+  res.set('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob: https://*.tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; media-src 'self' blob:; frame-ancestors 'none'");
+  res.set('Permissions-Policy', 'camera=(self), geolocation=(self), microphone=()');
   if (PROD) res.set('Strict-Transport-Security', 'max-age=31536000');
   next();
 });
@@ -45,7 +48,8 @@ app.get('/healthz', async (req, res) => {
 // Purchase order uploads arrive as base64 inside JSON (10 MB file ≈ 13.4 MB encoded).
 const jsonSmall = express.json({ limit: '1mb' });
 const jsonLarge = express.json({ limit: '15mb' });
-app.use((req, res, next) => (/^\/api\/billing\/(tickets\/\d+\/po|po\/\d+)$/.test(req.path) ? jsonLarge : jsonSmall)(req, res, next));
+const LARGE_BODY = /^\/api\/(billing\/(tickets\/\d+\/po|po\/\d+)|impl\/e\/\w+(\/\d+)?|attendance\/(enrol|punch))$/;
+app.use((req, res, next) => (LARGE_BODY.test(req.path) ? jsonLarge : jsonSmall)(req, res, next));
 app.use(
   session({
     name: 'ttf.sid',
@@ -75,8 +79,16 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api', requireAuth, require('./routes/approvals'));
 app.use('/api/admin', requireAuth, require('./routes/admin'));
 app.use('/api/billing', requireAuth, require('./routes/billing'));
+app.use('/api/impl', requireAuth, require('./impl/routes'));
+app.use('/api/attendance', requireAuth, require('./attendance').router);
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
+// Browser libraries served from our own origin (the CSP blocks external scripts).
+const vendor = (p) => express.static(path.join(__dirname, '..', 'node_modules', p), { maxAge: '7d', fallthrough: false });
+app.use('/vendor/chart', vendor('chart.js/dist'));
+app.use('/vendor/leaflet', vendor('leaflet/dist'));
+app.use('/vendor/face-api', vendor('@vladmandic/face-api/dist'));
+app.use('/vendor/face-models', vendor('@vladmandic/face-api/model'));
 app.use(express.static(path.join(__dirname, '..', 'public'), { index: 'index.html', maxAge: 0 }));
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 
@@ -94,6 +106,7 @@ app.use((err, req, res, next) => {
 });
 
 init()
+  .then(setupImpl)
   .then(() => {
     app.listen(PORT, HOST, () => console.log(`Ticket Tracking For Finance is running at http://localhost:${PORT}`));
   })

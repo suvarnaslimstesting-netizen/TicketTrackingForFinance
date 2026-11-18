@@ -15,6 +15,20 @@ const PERMISSIONS = [
   { key: 'po.manage', label: 'Record & Upload Client Purchase Orders', group: 'Quotation & Billing' },
   { key: 'invoice.manage', label: 'Create Invoices, Mark Paid / Cancel', group: 'Quotation & Billing' },
 
+  { key: 'impl.view', label: 'Open the Implementation section', group: 'Implementation' },
+  { key: 'impl.view_all', label: 'See all clients (otherwise only clients the user is assigned to)', group: 'Implementation' },
+  { key: 'impl.manage', label: 'Plan implementation: locations, modules, templates, assignments, go-live', group: 'Implementation' },
+  { key: 'impl.work', label: 'Field work: module tasks, daily status, visits, communication, training, issues', group: 'Implementation' },
+  { key: 'impl.infra', label: 'Infra, servers, hardware and IT contacts', group: 'Implementation' },
+  { key: 'credential.view', label: 'Reveal server passwords (every view is logged)', group: 'Implementation' },
+  { key: 'task.approve', label: 'Approve / reject completed tasks', group: 'Implementation' },
+  { key: 'salesorder.manage', label: 'Sales orders and their documents', group: 'Implementation' },
+  { key: 'amc.manage', label: 'AMC contracts', group: 'Implementation' },
+  { key: 'impl.settings', label: 'Implementation masters, standard tasks and settings', group: 'Implementation' },
+
+  { key: 'attendance.self', label: 'Face attendance: enrol, check in / check out with location', group: 'Attendance' },
+  { key: 'attendance.view', label: 'Team attendance, live location map, reset face enrolment', group: 'Attendance' },
+
   { key: 'department.manage', label: 'Create & Manage Departments', group: 'Administration' },
   { key: 'role.manage', label: 'Create Roles & Manage Access Permissions', group: 'Administration' },
   { key: 'user.manage', label: 'Create Users, Assign Roles & Departments, Activate / Deactivate', group: 'Administration' },
