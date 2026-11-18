@@ -148,41 +148,149 @@ function photoClicks(root) {
   })));
 }
 
+let attCleanup = null;
 export async function renderAttendance(root) {
+  if (attCleanup) { attCleanup(); attCleanup = null; }
   const d = await api('/attendance/me');
+  const head = `<div class="page-head"><div><h1>Face Attendance</h1><p>Face check-in / check-out with your live location and timings.</p></div></div>`;
   if (!d.required) {
-    root.innerHTML = `<div class="page-head"><div><h1>My Attendance</h1></div></div><div class="card empty"><b>Face attendance is not required for your role</b></div>`;
+    root.innerHTML = `${head}<div class="card card-body enrol"><div class="enrol-ico">${icon('face')}</div><div>
+      <h3>Face attendance is switched OFF for you</h3>
+      <p>Your Implementation Manager switches face attendance ON for the people who must check in with their face and location (Attendance Settings).</p>
+      ${d.canConfigure ? `<button class="btn btn-primary" data-self>${icon('check')} Switch ON for me</button> <a class="btn" href="#/attendance-settings">${icon('settings')} Attendance Settings</a>` : ''}</div></div>`;
+    root.querySelector('[data-self]')?.addEventListener('click', async (ev) => {
+      busy(ev.currentTarget, true);
+      try {
+        await api(`/attendance/settings/${state.user.id}`, { method: 'PUT', body: { enabled: true } });
+        state.user.face_attendance = true;
+        toast('Face attendance switched ON for you.');
+        renderAttendance(root);
+      } catch (err) { busy(ev.currentTarget, false); toast(err.message, 'err'); }
+    });
     return;
   }
+
   const t = d.today;
   const primary = d.locations.find((l) => l.assigned);
-  const state = !t ? 'none' : !t.out_time ? 'in' : 'out';
-  root.innerHTML = `<div class="page-head"><div><h1>My Attendance</h1><p>Face check-in and check-out with your location.</p></div></div>
+  const st = !t ? 'none' : !t.out_time ? 'in' : 'out';
+  // Server time (IST) vs this device's clock, so the running timer is right even if the phone clock is off.
+  const parse = (s) => Date.parse(s.replace(' ', 'T') + 'Z');
+  const skew = parse(d.now) - Date.now();
+  const serverNow = () => Date.now() + skew;
+  const dur = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${String(Math.floor(s / 3600)).padStart(2, '0')}:${String(Math.floor(s / 60) % 60).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
+
+  root.innerHTML = `${head}
     ${!d.enrolled ? `<div class="card card-body enrol">
-        <div class="enrol-ico">${icon('user')}</div>
-        <div><h3>Enrol your face (one time)</h3>
-        <p>The app saves a numeric face signature and one photo so it can recognise you at check-in. During each check-in and check-out it also records your GPS location and a small photo (kept ${d.photoDays} days). While you are checked in and this app is open, your location is shared every 15 minutes.</p>
+        <div class="enrol-ico">${icon('face')}</div>
+        <div><h3>Step 1 — enrol your face (one time)</h3>
+        <p>The app saves a numeric face signature and one photo so it can recognise you at check-in. Each check-in and check-out also records your GPS location and a small photo (kept ${d.photoDays} days). While you are checked in and this app is open, your location is shared every ${d.pingMinutes} minutes.</p>
         <label class="check"><input type="checkbox" data-consent> I agree to the use of my face and location for attendance.</label>
-        <div style="margin-top:12px"><button class="btn btn-primary" data-enrol disabled>${icon('user')} Enrol my face</button></div></div></div>`
-    : `<div class="card card-body att-today">
-        <div class="att-status">
-          <div class="att-big ${state}">${state === 'none' ? 'Not checked in' : state === 'in' ? 'Checked in' : 'Checked out'}</div>
-          <div class="help">${fmtDate(today())}</div>
-          ${t ? `<div class="att-line">In: <b>${hm(t.in_time)}</b> ${geoBadge(t.in_geo, t.in_dist)} ${photo(t.in_photo, 'Check-in photo')}</div>` : ''}
-          ${t && t.out_time ? `<div class="att-line">Out: <b>${hm(t.out_time)}</b> ${geoBadge(t.out_geo, t.out_dist)} ${photo(t.out_photo, 'Check-out photo')} · ${fmtNum(t.hours)} h</div>` : ''}
+        <div style="margin-top:12px"><button class="btn btn-primary" data-enrol disabled>${icon('face')} Enrol my face</button></div></div></div>` : ''}
+    <div class="att-grid">
+      <div class="card card-body att-panel">
+        <div class="att-big ${st}">${st === 'none' ? 'Not checked in' : st === 'in' ? 'On duty' : 'Checked out'}</div>
+        <div class="help">${fmtDate(today())}</div>
+        <div class="timings">
+          <div><span>Check-in</span><b>${t ? hm(t.in_time) : '—'}</b>${t ? `<small>${geoBadge(t.in_geo, t.in_dist)}</small>` : ''}${t ? photo(t.in_photo, 'Check-in photo') : ''}</div>
+          <div><span>Check-out</span><b>${t && t.out_time ? hm(t.out_time) : '—'}</b>${t && t.out_time ? `<small>${geoBadge(t.out_geo, t.out_dist)}</small>${photo(t.out_photo, 'Check-out photo')}` : ''}</div>
+          <div class="wide"><span>${st === 'in' ? 'Working time (live)' : 'Worked'}</span><b class="mono" data-timer>${st === 'in' ? dur(serverNow() - parse(t.in_time)) : t && t.out_time ? dur(parse(t.out_time) - parse(t.in_time)) : '00:00:00'}</b></div>
+          <div><span>Location shared</span><b>${d.pings.count || 0}×</b><small>${d.pings.last ? `last ${hm(d.pings.last)}` : 'not yet'}</small></div>
+          <div><span>Next share</span><b data-next>${st === 'in' ? '—' : 'off'}</b><small>${st === 'in' ? `every ${d.pingMinutes} min` : 'only while on duty'}</small></div>
         </div>
-        ${state !== 'out' ? `<div class="att-action">
+        ${d.enrolled && st !== 'out' ? `<div class="att-action">
           <label for="att-loc">Where are you working?</label>
           <select id="att-loc" class="input"><option value="">Office / remote (no geofence)</option>
-            ${d.locations.map((l) => `<option value="${l.id}" ${(state === 'in' ? t.in_loc === l.id : primary && primary.id === l.id) ? 'selected' : ''}>${esc(l.client_name)} – ${esc(l.name)}${l.lat == null ? ' (no geofence set)' : ''}</option>`).join('')}</select>
-          <button class="btn btn-primary btn-lg btn-block" data-punch="${state === 'none' ? 'in' : 'out'}">${icon('user')} ${state === 'none' ? 'Face check-in' : 'Face check-out'}</button>
-          <span class="help">${state === 'in' ? 'Location is shared every 15 minutes while this app is open.' : 'Uses your camera and GPS.'}</span></div>` : '<div class="att-action"><span class="badge ok">Done for today</span></div>'}
-      </div>`}
+            ${d.locations.map((l) => `<option value="${l.id}" ${(st === 'in' ? t.in_loc === l.id : primary && primary.id === l.id) ? 'selected' : ''}>${esc(l.client_name)} – ${esc(l.name)}${l.lat == null ? ' (no geofence set)' : ''}</option>`).join('')}</select>
+          <button class="btn btn-primary btn-lg btn-block" data-punch="${st === 'none' ? 'in' : 'out'}">${icon('face')} ${st === 'none' ? 'Face check-in' : 'Face check-out'}</button></div>`
+        : st === 'out' ? '<div class="att-action"><span class="badge ok">Done for today</span></div>' : ''}
+      </div>
+      <div class="card att-live">
+        <div class="card-head"><h3>${icon('pin')} Live location</h3><small data-live-status>Locating…</small></div>
+        <div class="map att-map" data-map></div>
+        <div class="live-facts"><div><span>Accuracy</span><b data-acc>—</b></div><div><span>Updated</span><b data-upd>—</b></div><div><span>Site</span><b data-site>—</b></div><div><span>Geofence</span><b data-geo>—</b></div></div>
+      </div>
+    </div>
     <div class="card"><div class="card-head"><h3>My last 31 days</h3><button class="btn btn-sm" data-xl>${icon('excel')} Excel</button></div><div class="table-wrap">${d.history.length ? `<table class="tbl tbl-compact"><thead><tr><th>Date</th><th>Check-in</th><th>Location</th><th>Check-out</th><th>Location</th><th class="num">Hours</th></tr></thead><tbody>
       ${d.history.map((h) => `<tr><td>${fmtDate(h.adate)}</td><td>${hm(h.in_time)} ${photo(h.in_photo, 'Check-in photo')}</td><td>${esc(h.in_loc_name || 'Office / remote')} ${geoBadge(h.in_geo, h.in_dist)}</td>
         <td>${h.out_time ? `${hm(h.out_time)} ${photo(h.out_photo, 'Check-out photo')}` : '<span class="badge warn">Not checked out</span>'}</td><td>${h.out_time ? `${esc(h.out_loc_name || 'Office / remote')} ${geoBadge(h.out_geo, h.out_dist)}` : ''}</td><td class="num">${h.hours != null ? fmtNum(h.hours) : '—'}</td></tr>`).join('')}</tbody></table>` : '<div class="empty small">No attendance yet.</div>'}</div></div>`;
   photoClicks(root);
   root.querySelector('[data-xl]').addEventListener('click', () => download(`/attendance/report${qs({ from: d.history.length ? d.history[d.history.length - 1].adate : today(), to: today(), format: 'xlsx' })}`).catch((err) => toast(err.message, 'err')));
+
+  /* ---- live timer ---- */
+  const timers = [];
+  if (st === 'in') {
+    timers.push(setInterval(() => {
+      const el = root.querySelector('[data-timer]');
+      if (el) el.textContent = dur(serverNow() - parse(t.in_time));
+      const nx = root.querySelector('[data-next]');
+      if (nx) {
+        const base = d.pings.last ? parse(d.pings.last) : parse(t.in_time);
+        const left = base + d.pingMinutes * 60000 - serverNow();
+        nx.textContent = left > 0 ? `in ${Math.ceil(left / 60000)} min` : 'due now';
+      }
+    }, 1000));
+  }
+
+  /* ---- live map ---- */
+  let map = null, me = null, ring = null, watch = null, siteLayer = null;
+  const siteSel = root.querySelector('#att-loc');
+  const site = () => {
+    const id = siteSel ? +siteSel.value : st === 'in' || st === 'out' ? t.in_loc : null;
+    return d.locations.find((l) => l.id === id) || null;
+  };
+  const setFacts = (pos) => {
+    const s = site();
+    root.querySelector('[data-site]').textContent = s ? `${s.client_name} – ${s.name}` : 'Office / remote';
+    if (!pos) return;
+    root.querySelector('[data-acc]').textContent = `±${Math.round(pos.coords.accuracy)} m`;
+    root.querySelector('[data-upd]').textContent = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const g = root.querySelector('[data-geo]');
+    if (s && s.lat != null) {
+      const m = Math.round(haversine(pos.coords.latitude, pos.coords.longitude, s.lat, s.lng));
+      const inside = m <= (s.radius_m || 300);
+      g.innerHTML = `<span class="badge ${inside ? 'ok' : 'bad'}">${inside ? 'Inside' : 'Outside'} · ${fmtNum(m)} m</span>`;
+    } else g.innerHTML = '<span class="badge off">No geofence</span>';
+  };
+  const drawSite = () => {
+    if (!map) return;
+    if (siteLayer) siteLayer.remove();
+    const s = site();
+    siteLayer = s && s.lat != null ? window.L.circle([s.lat, s.lng], { radius: s.radius_m || 300, color: '#12932f', weight: 1, fillOpacity: 0.1 }).addTo(map).bindTooltip(`${esc(s.client_name)} – ${esc(s.name)}`) : null;
+  };
+  let lastPos = null;
+  siteSel?.addEventListener('change', () => { drawSite(); setFacts(lastPos); });
+  setFacts(null);
+  try {
+    loadCss('/vendor/leaflet/leaflet.css');
+    await loadScript('/vendor/leaflet/leaflet.js');
+    const L = window.L;
+    map = L.map(root.querySelector('[data-map]'), { zoomControl: true }).setView([17.385, 78.4867], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors', referrerPolicy: 'strict-origin-when-cross-origin' }).addTo(map);
+    drawSite();
+    const s = site();
+    if (s && s.lat != null) map.setView([s.lat, s.lng], 15);
+  } catch { root.querySelector('[data-map]').innerHTML = '<div class="empty small">Map could not be loaded.</div>'; }
+  const status = root.querySelector('[data-live-status]');
+  if (!navigator.geolocation) status.textContent = 'Location not supported on this device';
+  else {
+    let first = true;
+    watch = navigator.geolocation.watchPosition((pos) => {
+      lastPos = pos;
+      status.textContent = 'Live';
+      status.className = 'live-on';
+      setFacts(pos);
+      if (!map) return;
+      const ll = [pos.coords.latitude, pos.coords.longitude];
+      if (!me) {
+        ring = window.L.circle(ll, { radius: pos.coords.accuracy, color: '#2c6a98', weight: 1, fillOpacity: 0.12 }).addTo(map);
+        me = window.L.circleMarker(ll, { radius: 8, color: '#fff', weight: 3, fillColor: '#2c6a98', fillOpacity: 1 }).addTo(map).bindTooltip('You');
+      } else { me.setLatLng(ll); ring.setLatLng(ll).setRadius(pos.coords.accuracy); }
+      if (first) { first = false; map.setView(ll, 16); }
+    }, (err) => { status.textContent = err.code === 1 ? 'Location permission denied' : 'Location unavailable'; status.className = 'live-off'; },
+    { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 });
+  }
+
+  /* ---- enrol / punch ---- */
   const consent = root.querySelector('[data-consent]');
   if (consent) {
     const btn = root.querySelector('[data-enrol]');
@@ -202,12 +310,12 @@ export async function renderAttendance(root) {
     const kind = pb.dataset.punch;
     try {
       busy(pb, true, 'Getting your location…');
-      const pos = await getPosition();
+      const pos = lastPos && Date.now() - lastPos.timestamp < 30000 ? lastPos : await getPosition();
       busy(pb, false);
       const face = await captureFace({ title: kind === 'in' ? 'Face check-in' : 'Face check-out' });
       busy(pb, true, 'Verifying…');
       const r = await api('/attendance/punch', { method: 'POST', body: {
-        kind, liveness: true, descriptor: face.descriptors[0], photo: { data: face.photo }, loc: root.querySelector('#att-loc').value,
+        kind, liveness: true, descriptor: face.descriptors[0], photo: { data: face.photo }, loc: siteSel ? siteSel.value : '',
         lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy,
       } });
       toast(`Checked ${kind} — ${r.geo}${r.distance != null ? ` (${r.distance} m from site)` : ''}.`, r.geo === 'Outside' ? 'err' : 'ok');
@@ -215,6 +323,19 @@ export async function renderAttendance(root) {
       renderAttendance(root);
     } catch (err) { busy(pb, false); if (err.message !== 'cancelled') toast(err.message, 'err'); }
   });
+
+  attCleanup = () => {
+    timers.forEach(clearInterval);
+    if (watch !== null) navigator.geolocation.clearWatch(watch);
+    if (map) map.remove();
+  };
+  return attCleanup;
+}
+
+function haversine(lat1, lng1, lat2, lng2) {
+  const r = (x) => (x * Math.PI) / 180;
+  const a = Math.sin(r(lat2 - lat1) / 2) ** 2 + Math.cos(r(lat1)) * Math.cos(r(lat2)) * Math.sin(r(lng2 - lng1) / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.sqrt(a));
 }
 
 /* ------------------------------ Team attendance ---------------------------- */

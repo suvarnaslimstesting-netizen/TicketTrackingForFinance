@@ -111,9 +111,13 @@ router.get('/me', async (req, res) => {
     `SELECT d.*, li.name AS in_loc_name, lo.name AS out_loc_name FROM att_days d
        LEFT JOIN im_locations li ON li.id = d.in_loc LEFT JOIN im_locations lo ON lo.id = d.out_loc
       WHERE d.user_id = ? ORDER BY d.adate DESC LIMIT 31`, u.id);
+  const pings = await q.get('SELECT COUNT(*) AS n, MAX(ts) AS last FROM att_pings WHERE user_id = ? AND ts LIKE ?', u.id, `${todayLocal()}%`);
+  const now = await q.get(`SELECT ${NOW} AS t`);
   res.json({
-    required: !!u.face_attendance, enrolled: !!enrol, enrolledAt: enrol ? enrol.enrolled_at : null,
+    required: !!u.face_attendance, canConfigure: u.permissions.includes('attendance.config'),
+    enrolled: !!enrol, enrolledAt: enrol ? enrol.enrolled_at : null, now: now.t,
     today: today || null, history, locations: await myLocations(u.id), photoDays: PHOTO_DAYS,
+    pings: { count: pings.n, last: pings.last }, pingMinutes: 15,
   });
 });
 

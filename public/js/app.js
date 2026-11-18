@@ -36,6 +36,10 @@ const ROUTES = [
   { mod: 'tracking', path: 'dashboard', label: 'Dashboard', icon: 'dashboard', perm: 'dashboard.view', group: 'Overview', render: renderDashboard },
   { mod: 'tracking', path: 'approvals', label: 'Man-Day Approvals', icon: 'ticket', perm: 'approval.view', group: 'Overview', render: renderApprovals },
   { mod: 'tracking', path: 'billing', label: 'Quotation & Billing', icon: 'invoice', perm: 'billing.view', group: 'Billing', render: renderBilling },
+  // Attendance (first on the Implementation side; every Implementation user sees Face Attendance)
+  { path: 'attendance', label: 'Face Attendance', icon: 'face', show: () => true, group: 'Attendance', render: renderAttendance },
+  { path: 'team-attendance', label: 'Team Attendance', icon: 'map', perm: 'attendance.view', group: 'Attendance', render: renderTeamAttendance },
+  { path: 'attendance-settings', label: 'Attendance Settings', icon: 'settings', perm: 'attendance.config', group: 'Attendance', render: renderAttendanceSettings },
   // Implementation
   { path: 'myday', label: 'My Day', icon: 'sun', perm: 'impl.work', show: () => can('impl.work') && !can('impl.view_all'), group: 'Implementation', render: renderMyDay },
   { path: 'impl', label: 'Implementation Dashboard', icon: 'trend', perm: 'impl.view', group: 'Implementation', render: renderImplDashboard },
@@ -53,10 +57,6 @@ const ROUTES = [
   { path: 'amc', label: 'AMC', icon: 'shield', perm: 'impl.view', show: () => can('impl.view') && (can('impl.view_all') || can('amc.manage')), group: 'Implementation', render: entityPage('amc', 'AMC', 'Annual maintenance contracts and renewals.') },
   { path: 'impl-reports', label: 'Implementation Reports', icon: 'excel', perm: 'impl.view', group: 'Implementation', render: renderImplReports },
   { path: 'impl-masters', label: 'Implementation Masters', icon: 'settings', perm: 'impl.settings', show: () => can('impl.settings') || can('impl.manage'), group: 'Implementation', render: renderImplMasters },
-  // Attendance
-  { path: 'attendance', label: 'My Attendance', icon: 'face', show: () => !!state.user.face_attendance, group: 'Attendance', render: renderAttendance },
-  { path: 'team-attendance', label: 'Team Attendance', icon: 'map', perm: 'attendance.view', group: 'Attendance', render: renderTeamAttendance },
-  { path: 'attendance-settings', label: 'Attendance Settings', icon: 'settings', perm: 'attendance.config', group: 'Attendance', render: renderAttendanceSettings },
   { mod: 'both', path: 'audit', label: 'Audit History', icon: 'history', perm: 'audit.view', group: 'Overview', render: renderAudit },
   { mod: 'both', path: 'departments', label: 'Departments', icon: 'building', perm: 'department.manage', group: 'Administration', render: renderDepartments },
   { mod: 'both', path: 'roles', label: 'Roles & Permissions', icon: 'shield', perm: 'role.manage', group: 'Administration', render: renderRoles },
