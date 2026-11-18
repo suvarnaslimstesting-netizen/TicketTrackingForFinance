@@ -4,7 +4,7 @@ async function loadUserById(id) {
   const u = await q.get(
     `SELECT u.id, u.user_code, u.employee_name, u.employee_code, u.email, u.mobile, u.username,
             u.department_id, d.name AS department_name, u.role_id, r.name AS role_name,
-            r.permissions, r.status AS role_status, u.status, u.must_change_password, u.last_login_at
+            r.permissions, r.status AS role_status, u.status, u.must_change_password, u.last_login_at, u.face_attendance
        FROM users u
        JOIN roles r ON r.id = u.role_id
        LEFT JOIN departments d ON d.id = u.department_id

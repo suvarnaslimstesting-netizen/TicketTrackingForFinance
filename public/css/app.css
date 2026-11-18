@@ -601,3 +601,21 @@ table.tbl { width: 100%; border-collapse: separate; border-spacing: 0; font-size
   .crud-head .input-sm { max-width: none; flex: 1; }
 }
 @media (prefers-reduced-motion: reduce) { .cam-ring.turn { animation: none; } }
+
+/* Module choice on the sign-in screen */
+.mod-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 14px; }
+.mod-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.mod-opt span { display: flex; align-items: center; justify-content: center; gap: 8px; height: 46px; border: 1.5px solid var(--border-strong); border-radius: 12px; cursor: pointer; color: var(--text-2); font-size: 14px; transition: all .15s; }
+.mod-opt span svg { width: 18px; height: 18px; }
+.mod-opt input:checked + span { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); box-shadow: var(--ring); }
+.mod-opt input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: 2px; }
+.mod-switch svg { width: 16px; height: 16px; }
+.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; }
+.switch span { width: 40px; height: 22px; border-radius: 99px; background: var(--border-strong); position: relative; transition: background .15s; }
+.switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.switch input:checked + span { background: var(--green); }
+.switch input:checked + span::after { transform: translateX(18px); }
+.switch input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: 2px; }
+.switch b { font-size: 12px; min-width: 26px; }
+@media (max-width: 600px) { .mod-switch { padding: 0 10px; } }

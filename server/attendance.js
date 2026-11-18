@@ -72,11 +72,16 @@ function readGps(b) {
   return { lat, lng, acc: Number.isFinite(acc) ? Math.round(acc) : null };
 }
 
-const fieldStaff = async () => (await q.all(
-  `SELECT u.id, u.employee_name AS name, u.employee_code AS code, r.name AS role, r.permissions
-     FROM users u JOIN roles r ON r.id = u.role_id WHERE u.status = 'Active' AND r.is_system = 0 ORDER BY u.employee_name`))
-  .filter((u) => JSON.parse(u.permissions || '[]').includes('attendance.self'))
-  .map(({ permissions, ...u }) => u);
+// Users the Implementation Manager has switched face attendance ON for.
+const fieldStaff = () => q.all(
+  `SELECT u.id, u.employee_name AS name, u.employee_code AS code, r.name AS role
+     FROM users u JOIN roles r ON r.id = u.role_id WHERE u.status = 'Active' AND u.face_attendance = 1 ORDER BY u.employee_name`);
+
+function requireFace(req, res, next) {
+  if (req.user.must_change_password) return res.status(403).json({ error: 'Please change your password before continuing.', code: 'PASSWORD_CHANGE_REQUIRED' });
+  if (!req.user.face_attendance) return res.status(403).json({ error: 'Face attendance is not switched on for you. Ask your Implementation Manager.' });
+  next();
+}
 
 // Locations the user may punch at: those of their current assignments (plus all locations of assigned clients).
 async function myLocations(userId) {
@@ -107,12 +112,12 @@ router.get('/me', async (req, res) => {
        LEFT JOIN im_locations li ON li.id = d.in_loc LEFT JOIN im_locations lo ON lo.id = d.out_loc
       WHERE d.user_id = ? ORDER BY d.adate DESC LIMIT 31`, u.id);
   res.json({
-    required: u.permissions.includes('attendance.self'), enrolled: !!enrol, enrolledAt: enrol ? enrol.enrolled_at : null,
+    required: !!u.face_attendance, enrolled: !!enrol, enrolledAt: enrol ? enrol.enrolled_at : null,
     today: today || null, history, locations: await myLocations(u.id), photoDays: PHOTO_DAYS,
   });
 });
 
-router.post('/enrol', requirePerm('attendance.self'), async (req, res) => {
+router.post('/enrol', requireFace, async (req, res) => {
   if (req.body.consent !== true) throw httpError(400, 'Please give consent to use your face for attendance.');
   if (await q.get('SELECT 1 AS x FROM att_enrol WHERE user_id = ?', req.user.id)) {
     throw httpError(409, 'Your face is already enrolled. Ask your manager to reset it if you need to enrol again.');
@@ -130,7 +135,7 @@ router.post('/enrol', requirePerm('attendance.self'), async (req, res) => {
   res.status(201).json({ ok: true });
 });
 
-router.post('/punch', requirePerm('attendance.self'), async (req, res) => {
+router.post('/punch', requireFace, async (req, res) => {
   const u = req.user;
   const kind = req.body.kind === 'out' ? 'out' : 'in';
   const enrol = await q.get('SELECT descriptors FROM att_enrol WHERE user_id = ?', u.id);
@@ -189,7 +194,7 @@ router.post('/punch', requirePerm('attendance.self'), async (req, res) => {
   res.json({ day: result, geo, distance: dist });
 });
 
-router.post('/ping', requirePerm('attendance.self'), async (req, res) => {
+router.post('/ping', requireFace, async (req, res) => {
   const gps = readGps(req.body);
   const day = await q.get('SELECT id, in_time, out_time FROM att_days WHERE user_id = ? AND adate = ?', req.user.id, todayLocal());
   if (!day || !day.in_time || day.out_time) return res.json({ tracking: false });
@@ -269,7 +274,7 @@ router.get('/photo/:id', async (req, res) => {
 
 router.get('/report', async (req, res) => {
   const mgr = req.user.permissions.includes('attendance.view');
-  if (!mgr && !req.user.permissions.includes('attendance.self')) throw httpError(403, 'You do not have permission to view attendance.');
+  if (!mgr && !req.user.face_attendance) throw httpError(403, 'You do not have permission to view attendance.');
   const from = isIsoDate(req.query.from) ? req.query.from : todayLocal().slice(0, 8) + '01';
   const to = isIsoDate(req.query.to) ? req.query.to : todayLocal();
   const userId = mgr ? parseInt(req.query.user, 10) : req.user.id;
@@ -293,6 +298,30 @@ router.get('/report', async (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="attendance-${from}-to-${to}.xlsx"`);
   await wb.xlsx.write(res);
   res.end();
+});
+
+/* ---------------------------- Attendance settings ---------------------------- */
+
+router.get('/settings', requirePerm('attendance.config'), async (req, res) => {
+  const users = await q.all(
+    `SELECT u.id, u.employee_name AS name, u.employee_code AS code, u.username, u.status, u.face_attendance, r.name AS role, d.name AS department,
+            (SELECT enrolled_at FROM att_enrol e WHERE e.user_id = u.id) AS enrolled_at
+       FROM users u JOIN roles r ON r.id = u.role_id LEFT JOIN departments d ON d.id = u.department_id
+      ORDER BY u.status, u.employee_name`);
+  res.json(users);
+});
+
+router.put('/settings/:userId', requirePerm('attendance.config'), async (req, res) => {
+  const id = +req.params.userId;
+  const u = Number.isInteger(id) && (await q.get('SELECT id, employee_name, face_attendance FROM users WHERE id = ?', id));
+  if (!u) throw httpError(404, 'User not found.');
+  const on = req.body.enabled === true || req.body.enabled === 1 || req.body.enabled === '1' ? 1 : 0;
+  if (on === u.face_attendance) return res.json({ ok: true });
+  await tx(async () => {
+    await q.run('UPDATE users SET face_attendance = ? WHERE id = ?', on, id);
+    await audit({ entity: 'ATTENDANCE', entityId: id, action: on ? 'ENABLE' : 'DISABLE', remarks: `Face attendance switched ${on ? 'ON' : 'OFF'} for ${u.employee_name}`, user: req.user });
+  });
+  res.json({ ok: true });
 });
 
 /* ------------------------------- Retention ------------------------------- */

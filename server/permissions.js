@@ -26,8 +26,8 @@ const PERMISSIONS = [
   { key: 'amc.manage', label: 'AMC contracts', group: 'Implementation' },
   { key: 'impl.settings', label: 'Implementation masters, standard tasks and settings', group: 'Implementation' },
 
-  { key: 'attendance.self', label: 'Face attendance: enrol, check in / check out with location', group: 'Attendance' },
   { key: 'attendance.view', label: 'Team attendance, live location map, reset face enrolment', group: 'Attendance' },
+  { key: 'attendance.config', label: 'Attendance Settings: switch face attendance ON / OFF per user', group: 'Attendance' },
 
   { key: 'department.manage', label: 'Create & Manage Departments', group: 'Administration' },
   { key: 'role.manage', label: 'Create Roles & Manage Access Permissions', group: 'Administration' },

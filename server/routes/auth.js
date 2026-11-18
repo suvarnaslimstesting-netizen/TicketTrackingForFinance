@@ -23,6 +23,7 @@ function publicUser(u) {
     role_name: u.role_name,
     permissions: u.permissions,
     must_change_password: !!u.must_change_password,
+    face_attendance: !!u.face_attendance,
     last_login_at: u.last_login_at,
   };
 }

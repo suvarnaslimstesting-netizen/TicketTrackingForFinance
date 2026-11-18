@@ -1,6 +1,6 @@
 import {
   api, can, esc, icon, fmtDate, fmtDateTime, fmtNum, fmtMoney, today, toast, modal, showFormError, busy, download, confirmDialog,
-  readFileBase64, loadScript, qs,
+  readFileBase64, loadScript, qs, state,
 } from '../core.js';
 
 /* ------------------------------ Shared data ------------------------------ */
@@ -316,7 +316,7 @@ export async function renderMyDay(root) {
         ${ent('training')?.canWrite ? `<button class="btn" data-new="training">+ Training</button>` : ''}
         ${ent('issues')?.canWrite ? `<button class="btn" data-new="issues">+ Issue / CR</button>` : ''}
         ${ent('visits')?.canWrite ? `<button class="btn" data-new="visits">+ Plan visit</button>` : ''}
-        ${can('attendance.self') ? `<a class="btn" href="#/attendance">${icon('user')} Attendance</a>` : ''}
+        ${state.user.face_attendance ? `<a class="btn" href="#/attendance">${icon('user')} Attendance</a>` : ''}
       </div></div>
     <div class="card"><div class="card-head"><h3>Tasks due or overdue (next 3 days)</h3></div>${tbl(['Location', 'Module', 'Task', 'Target', 'Status', ''], d.tasks.map((t) => [nl(t.client, t.loc), esc(t.module), esc(t.task), fmtDate(t.target_on) + (t.target_on < d.today ? ' <span class="badge bad">Overdue</span>' : ''), badge(t.status), btn('tasks', t.id, 'Update')]))}</div>
     <div class="card"><div class="card-head"><h3>Visits to do</h3></div>${tbl(['Location', 'Planned', 'Purpose', ''], d.visits.map((v) => [nl(v.client, v.loc), fmtDate(v.planned_on), esc(v.purpose), btn('visits', v.id, 'Check in / update')]))}</div>

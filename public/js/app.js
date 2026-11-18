@@ -6,15 +6,36 @@ import { renderBilling } from './views/billing.js';
 import {
   renderImplDashboard, renderMyDay, renderImplClients, renderTaskApprovals, renderImplReports, renderImplMasters, renderSalesOrders, entityPage, resetImplCache,
 } from './views/impl.js';
-import { renderAttendance, renderTeamAttendance, startLocationPings, stopLocationPings } from './views/attendance.js';
+import { renderAttendance, renderTeamAttendance, renderAttendanceSettings, startLocationPings, stopLocationPings } from './views/attendance.js';
+
+/* ------------------------------ Modules ------------------------------ */
+// The user picks Ticket Tracking or Implementation at sign-in; only that side's menus are shown.
+const MODULES = {
+  tracking: { label: 'Ticket Tracking', full: 'Ticket Tracking For Finance', icon: 'ticket' },
+  impl: { label: 'Implementation', full: 'HIMS Implementation', icon: 'trend' },
+};
+const TRACKING_PERMS = ['dashboard.view', 'approval.view', 'billing.view', 'audit.view', 'department.manage', 'role.manage', 'user.manage', 'client.manage', 'company.manage'];
+const hasModule = (m) => (m === 'impl'
+  ? can('impl.view') || can('attendance.view') || can('attendance.config') || !!(state.user && state.user.face_attendance)
+  : TRACKING_PERMS.some((p) => can(p)));
+const store = {
+  get: () => { try { return localStorage.getItem('ttf.module'); } catch { return null; } },
+  set: (v) => { try { localStorage.setItem('ttf.module', v); } catch { /* ignore */ } },
+};
+const hasModuleFor = (user, m) => {
+  const prev = state.user;
+  state.user = user;
+  try { return hasModule(m); } finally { state.user = prev; }
+};
+let currentModule = store.get() === 'impl' ? 'impl' : 'tracking';
 import { renderAudit } from './views/audit.js';
 
 const app = document.getElementById('app');
 
 const ROUTES = [
-  { path: 'dashboard', label: 'Dashboard', icon: 'dashboard', perm: 'dashboard.view', group: 'Overview', render: renderDashboard },
-  { path: 'approvals', label: 'Man-Day Approvals', icon: 'ticket', perm: 'approval.view', group: 'Overview', render: renderApprovals },
-  { path: 'billing', label: 'Quotation & Billing', icon: 'invoice', perm: 'billing.view', group: 'Billing', render: renderBilling },
+  { mod: 'tracking', path: 'dashboard', label: 'Dashboard', icon: 'dashboard', perm: 'dashboard.view', group: 'Overview', render: renderDashboard },
+  { mod: 'tracking', path: 'approvals', label: 'Man-Day Approvals', icon: 'ticket', perm: 'approval.view', group: 'Overview', render: renderApprovals },
+  { mod: 'tracking', path: 'billing', label: 'Quotation & Billing', icon: 'invoice', perm: 'billing.view', group: 'Billing', render: renderBilling },
   // Implementation
   { path: 'myday', label: 'My Day', icon: 'sun', perm: 'impl.work', show: () => can('impl.work') && !can('impl.view_all'), group: 'Implementation', render: renderMyDay },
   { path: 'impl', label: 'Implementation Dashboard', icon: 'trend', perm: 'impl.view', group: 'Implementation', render: renderImplDashboard },
@@ -33,14 +54,15 @@ const ROUTES = [
   { path: 'impl-reports', label: 'Implementation Reports', icon: 'excel', perm: 'impl.view', group: 'Implementation', render: renderImplReports },
   { path: 'impl-masters', label: 'Implementation Masters', icon: 'settings', perm: 'impl.settings', show: () => can('impl.settings') || can('impl.manage'), group: 'Implementation', render: renderImplMasters },
   // Attendance
-  { path: 'attendance', label: 'My Attendance', icon: 'face', perm: 'attendance.self', show: () => can('attendance.self') && state.user.role_name !== 'Admin', group: 'Attendance', render: renderAttendance },
+  { path: 'attendance', label: 'My Attendance', icon: 'face', show: () => !!state.user.face_attendance, group: 'Attendance', render: renderAttendance },
   { path: 'team-attendance', label: 'Team Attendance', icon: 'map', perm: 'attendance.view', group: 'Attendance', render: renderTeamAttendance },
-  { path: 'audit', label: 'Audit History', icon: 'history', perm: 'audit.view', group: 'Overview', render: renderAudit },
-  { path: 'departments', label: 'Departments', icon: 'building', perm: 'department.manage', group: 'Administration', render: renderDepartments },
-  { path: 'roles', label: 'Roles & Permissions', icon: 'shield', perm: 'role.manage', group: 'Administration', render: renderRoles },
-  { path: 'users', label: 'Users', icon: 'users', perm: 'user.manage', group: 'Administration', render: renderUsers },
-  { path: 'clients', label: 'Clients', icon: 'briefcase', perm: 'client.manage', group: 'Administration', render: renderClients },
-  { path: 'company', label: 'Company Settings', icon: 'settings', perm: 'company.manage', group: 'Administration', render: renderCompany },
+  { path: 'attendance-settings', label: 'Attendance Settings', icon: 'settings', perm: 'attendance.config', group: 'Attendance', render: renderAttendanceSettings },
+  { mod: 'both', path: 'audit', label: 'Audit History', icon: 'history', perm: 'audit.view', group: 'Overview', render: renderAudit },
+  { mod: 'both', path: 'departments', label: 'Departments', icon: 'building', perm: 'department.manage', group: 'Administration', render: renderDepartments },
+  { mod: 'both', path: 'roles', label: 'Roles & Permissions', icon: 'shield', perm: 'role.manage', group: 'Administration', render: renderRoles },
+  { mod: 'both', path: 'users', label: 'Users', icon: 'users', perm: 'user.manage', group: 'Administration', render: renderUsers },
+  { mod: 'both', path: 'clients', label: 'Clients', icon: 'briefcase', perm: 'client.manage', group: 'Administration', render: renderClients },
+  { mod: 'tracking', path: 'company', label: 'Company Settings', icon: 'settings', perm: 'company.manage', group: 'Administration', render: renderCompany },
 ];
 
 let cleanup = null; // per-view teardown (timers etc.)
@@ -80,7 +102,9 @@ function renderLogin(message) {
       <section class="login-panel">
         <form class="login-card" novalidate>
           <img class="login-brand" src="/img/suvarna-logo.png" alt="Suvarna Technosoft Pvt Ltd">
-          <div class="app-name">${icon('ticket')} Ticket Tracking For Finance</div>
+          <div class="mod-pick" role="radiogroup" aria-label="Sign in to">
+            ${Object.entries(MODULES).map(([k, m]) => `<label class="mod-opt"><input type="radio" name="module" value="${k}" ${k === currentModule ? 'checked' : ''}><span>${icon(m.icon)}<b>${m.label}</b></span></label>`).join('')}
+          </div>
           <h2>Welcome back</h2>
           <p class="sub">Sign in with the username and password from your administrator.</p>
           <div class="grid">
@@ -112,8 +136,18 @@ function renderLogin(message) {
     showFormError(form, null);
     busy(btn, true, 'Signing in…');
     try {
-      const { user } = await api('/auth/login', { method: 'POST', body: formValues(form) });
+      const v = formValues(form);
+      const { user } = await api('/auth/login', { method: 'POST', body: { username: v.username, password: v.password } });
       state.user = user;
+      const want = v.module === 'impl' ? 'impl' : 'tracking';
+      if (!user.must_change_password && !hasModule(want)) {
+        const other = want === 'impl' ? 'tracking' : 'impl';
+        await api('/auth/logout', { method: 'POST', body: {} }).catch(() => {});
+        state.user = null;
+        throw new Error(`Your account does not have access to ${MODULES[want].label}.${hasModuleFor(user, other) ? ` Choose ${MODULES[other].label}.` : ''}`);
+      }
+      currentModule = want;
+      store.set(want);
       await start();
     } catch (err) {
       showFormError(form, err);
@@ -180,7 +214,7 @@ function greeting() {
 }
 
 function allowedRoutes() {
-  return ROUTES.filter((r) => (r.show ? r.show() : can(r.perm)));
+  return ROUTES.filter((r) => ((r.mod || 'impl') === currentModule || r.mod === 'both') && (r.show ? r.show() : can(r.perm)));
 }
 
 function renderShell() {
@@ -192,7 +226,7 @@ function renderShell() {
       <aside class="sidebar">
         <div class="side-brand">
           <img src="/img/suvarna-logo.png" alt="Suvarna Technosoft Pvt Ltd">
-          <div class="app-name">${icon('ticket')} Ticket Tracking For Finance</div>
+          <div class="app-name">${icon(MODULES[currentModule].icon)} ${MODULES[currentModule].full}</div>
         </div>
         <nav class="nav">
           ${groups.map((g) => `<div class="nav-group">${esc(g)}</div>${routes.filter((r) => r.group === g).map((r) => `<a href="#/${r.path}" data-path="${r.path}">${icon(r.icon)}<span>${esc(r.label)}</span></a>`).join('')}`).join('')}
@@ -204,7 +238,8 @@ function renderShell() {
           <button class="icon-btn menu-btn" aria-label="Open menu">${icon('menu')}</button>
           <div class="greet"><b>${greeting()}, ${esc(u.employee_name.split(' ')[0])}</b><span>${new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
           <div class="spacer"></div>
-          ${can('approval.add') ? `<button class="btn btn-primary" data-new>${icon('plus')} New Approval</button>` : ''}
+          ${hasModule(currentModule === 'impl' ? 'tracking' : 'impl') ? `<button class="btn btn-ghost mod-switch" data-switch>${icon(MODULES[currentModule === 'impl' ? 'tracking' : 'impl'].icon)} Switch to ${MODULES[currentModule === 'impl' ? 'tracking' : 'impl'].label}</button>` : ''}
+          ${currentModule === 'tracking' && can('approval.add') ? `<button class="btn btn-primary" data-new>${icon('plus')} New Approval</button>` : ''}
           <button class="user-chip" aria-haspopup="menu"><span class="avatar">${esc(initials(u.employee_name))}</span><span class="meta"><b>${esc(u.employee_name)}</b><span>${esc(u.role_name)}</span></span></button>
         </header>
         <main class="content" id="view"></main>
@@ -214,6 +249,13 @@ function renderShell() {
   const shell = app.querySelector('.shell');
   app.querySelector('.menu-btn').addEventListener('click', () => shell.classList.toggle('nav-open'));
   app.querySelector('.nav').addEventListener('click', () => shell.classList.remove('nav-open'));
+  app.querySelector('[data-switch]')?.addEventListener('click', () => {
+    currentModule = currentModule === 'impl' ? 'tracking' : 'impl';
+    store.set(currentModule);
+    history.replaceState(null, '', '#/');
+    renderShell();
+    route();
+  });
   const newBtn = app.querySelector('[data-new]');
   if (newBtn) newBtn.addEventListener('click', () => openApprovalForm({ onSaved: () => { if (location.hash !== '#/approvals') location.hash = '#/approvals'; else route(); } }));
 
@@ -251,7 +293,7 @@ async function route() {
   }
   if (r.path !== path) { history.replaceState(null, '', `#/${r.path}`); }
   app.querySelectorAll('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.path === r.path));
-  document.title = `${r.label} · Ticket Tracking For Finance`;
+  document.title = `${r.label} · ${MODULES[currentModule].full}`;
   // Each screen renders into its own container, so a slow screen that finishes
   // after the user has already moved on cannot overwrite the current one.
   const view = document.getElementById('view');
@@ -274,11 +316,16 @@ async function start() {
     openChangePassword(true);
     return;
   }
+  if (!hasModule(currentModule)) currentModule = hasModule('impl') ? 'impl' : 'tracking';
+  store.set(currentModule);
   await loadLookups(true);
   resetImplCache();
   renderShell();
+  // Opening a page of the other module by link switches to that module (when allowed).
+  const target = ROUTES.find((x) => x.path === (location.hash.replace(/^#\/?/, '') || '').split('?')[0]);
+  if (target && target.mod !== 'both' && (target.mod || 'impl') !== currentModule && hasModule(target.mod || 'impl')) { currentModule = target.mod || 'impl'; store.set(currentModule); renderShell(); }
   route();
-  if (can('attendance.self')) startLocationPings();
+  if (state.user.face_attendance) startLocationPings();
 }
 
 window.addEventListener('hashchange', route);

@@ -1,4 +1,4 @@
-import { api, can, esc, icon, fmtDate, fmtNum, today, toast, modal, busy, download, confirmDialog, loadScript, loadCss, qs } from '../core.js';
+import { state, api, can, esc, icon, fmtDate, fmtNum, today, toast, modal, busy, download, confirmDialog, loadScript, loadCss, qs } from '../core.js';
 import { getPosition } from './impl.js';
 
 /* ------------------------------ Face engine ------------------------------ */
@@ -121,7 +121,7 @@ function captureFace({ title, samples = 1 }) {
 let pingTimer = null;
 // While checked in and the app is open, share location every 15 minutes.
 export function startLocationPings() {
-  if (pingTimer || !can('attendance.self')) return;
+  if (pingTimer || !(state.user && state.user.face_attendance)) return;
   const tick = async () => {
     if (document.hidden) return;
     try {
@@ -291,4 +291,35 @@ export async function renderTeamAttendance(root) {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }));
   return () => { if (map) { map.remove(); map = null; } };
+}
+
+/* ---------------------------- Attendance settings ---------------------------- */
+
+export async function renderAttendanceSettings(root) {
+  const rows = await api('/attendance/settings');
+  root.innerHTML = `<div class="page-head"><div><h1>Attendance Settings</h1><p>Switch face attendance ON for the users who must check in and check out with their face and location.</p></div></div>
+    <div class="card"><div class="toolbar"><input class="input" data-q placeholder="Search users…" aria-label="Search users"><span class="help" data-count style="margin-left:auto"></span></div>
+    <div class="table-wrap" data-t></div></div>`;
+  const draw = () => {
+    const term = root.querySelector('[data-q]').value.trim().toLowerCase();
+    const list = rows.filter((r) => !term || `${r.name} ${r.code} ${r.username} ${r.role} ${r.department || ''}`.toLowerCase().includes(term));
+    root.querySelector('[data-count]').textContent = `${rows.filter((r) => r.face_attendance).length} of ${rows.length} users ON`;
+    root.querySelector('[data-t]').innerHTML = `<table class="tbl tbl-compact"><thead><tr><th>Employee</th><th>Role</th><th>Department</th><th>Face enrolled</th><th>Face attendance</th></tr></thead><tbody>
+      ${list.map((r) => `<tr class="${r.status !== 'Active' ? 'row-muted' : ''}"><td><b>${esc(r.name)}</b><span class="sub">${esc(r.username)} · ${esc(r.code)}${r.status !== 'Active' ? ' · Inactive' : ''}</span></td><td>${esc(r.role)}</td><td>${esc(r.department || '—')}</td>
+        <td>${r.enrolled_at ? '<span class="badge ok">Enrolled</span>' : '<span class="badge off">Not enrolled</span>'}</td>
+        <td><label class="switch"><input type="checkbox" data-u="${r.id}" ${r.face_attendance ? 'checked' : ''} aria-label="Face attendance for ${esc(r.name)}"><span></span><b>${r.face_attendance ? 'ON' : 'OFF'}</b></label></td></tr>`).join('')}</tbody></table>`;
+    root.querySelectorAll('[data-u]').forEach((cb) => cb.addEventListener('change', async () => {
+      const r = rows.find((x) => x.id === +cb.dataset.u);
+      cb.disabled = true;
+      try {
+        await api(`/attendance/settings/${r.id}`, { method: 'PUT', body: { enabled: cb.checked } });
+        r.face_attendance = cb.checked ? 1 : 0;
+        toast(`Face attendance ${cb.checked ? 'ON' : 'OFF'} for ${r.name}.`);
+        if (r.id === state.user.id) state.user.face_attendance = cb.checked;
+      } catch (err) { cb.checked = !cb.checked; toast(err.message, 'err'); }
+      draw();
+    }));
+  };
+  root.querySelector('[data-q]').addEventListener('input', draw);
+  draw();
 }
