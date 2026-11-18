@@ -1,0 +1,23 @@
+{
+  "name": "ticket-tracking-for-finance",
+  "version": "1.0.0",
+  "description": "Ticket Tracking For Finance - Man-Day Approval & Ticket Management portal (Suvarna Technosoft)",
+  "main": "server/index.js",
+  "private": true,
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server/index.js",
+    "dev": "node --env-file-if-exists=.env --watch server/index.js"
+  },
+  "engines": {
+    "node": ">=22.9.0"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "connect-pg-simple": "^10.0.0",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "pdfkit": "^0.15.2",
+    "pg": "^8.23.1"
+  }
+}
