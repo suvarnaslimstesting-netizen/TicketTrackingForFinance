@@ -25,6 +25,7 @@ const PERMISSIONS = [
   { key: 'salesorder.manage', label: 'Sales orders and their documents', group: 'Implementation' },
   { key: 'amc.manage', label: 'AMC contracts', group: 'Implementation' },
   { key: 'impl.settings', label: 'Implementation masters, standard tasks and settings', group: 'Implementation' },
+  { key: 'impl.users', label: 'Create & manage Implementation employees (Implementation login only)', group: 'Implementation' },
 
   { key: 'attendance.view', label: 'Team attendance, live location map, reset face enrolment', group: 'Attendance' },
   { key: 'attendance.config', label: 'Attendance Settings: switch face attendance ON / OFF per user', group: 'Attendance' },

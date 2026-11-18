@@ -540,3 +540,73 @@ export async function renderImplMasters(root) {
 /* ------------------------------- Sales orders ------------------------------- */
 
 export const renderSalesOrders = entityPage('sorders', 'Sales Orders', 'HIMS sale orders. Add the clients and locations it covers; their modules and standard tasks are created automatically.', ['solines', 'sodocs']);
+
+/* -------------------------- Implementation employees -------------------------- */
+
+export async function renderEmployees(root) {
+  const d = await api('/impl/employees');
+  root.innerHTML = pageHead('Implementation Employees', 'Users who sign in to Implementation only. They have no access to Ticket Tracking.',
+    `<button class="btn btn-primary" data-add>${icon('plus')} Add Employee</button>`) + `
+    <div class="card"><div class="toolbar"><input class="input" data-q placeholder="Search employees…" aria-label="Search employees"><span class="help" data-count style="margin-left:auto"></span></div>
+    <div class="table-wrap" data-t></div></div>`;
+  const draw = () => {
+    const term = root.querySelector('[data-q]').value.trim().toLowerCase();
+    const list = d.rows.filter((r) => !term || `${r.employee_name} ${r.employee_code} ${r.username} ${r.email} ${r.role_name}`.toLowerCase().includes(term));
+    root.querySelector('[data-count]').textContent = `${list.length} employee(s)`;
+    root.querySelector('[data-t]').innerHTML = list.length ? `<table class="tbl tbl-compact"><thead><tr><th>Employee</th><th>Username</th><th>Role</th><th>Department</th><th>Mobile</th><th>Face attendance</th><th>Status</th><th>Last sign-in</th><th class="row-actions"></th></tr></thead><tbody>
+      ${list.map((r) => `<tr class="${r.status !== 'Active' ? 'row-muted' : ''}"><td><b>${esc(r.employee_name)}</b><span class="sub">${esc(r.employee_code)} · ${esc(r.email)}</span></td>
+        <td>${esc(r.username)}</td><td>${esc(r.role_name)}</td><td>${esc(r.department_name || '—')}</td><td>${esc(r.mobile || '—')}</td>
+        <td>${r.face_attendance ? `<span class="badge ok">ON</span>${r.enrolled_at ? '<span class="sub">Face enrolled</span>' : '<span class="sub">Not enrolled yet</span>'}` : '<span class="badge off">OFF</span>'}</td>
+        <td>${badge(r.status)}</td><td>${r.last_login_at ? fmtDateTime(r.last_login_at) : 'Never'}</td>
+        <td class="row-actions"><button class="icon-btn" data-edit="${r.id}" title="Edit" aria-label="Edit">${icon('edit')}</button>
+          <button class="btn btn-sm btn-ghost" data-st="${r.id}">${r.status === 'Active' ? 'Deactivate' : 'Activate'}</button></td></tr>`).join('')}</tbody></table>`
+      : '<div class="empty"><b>No Implementation employees yet</b>Use "Add Employee" to create one.</div>';
+    root.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => employeeForm(d, d.rows.find((x) => x.id === +b.dataset.edit), () => renderEmployees(root))));
+    root.querySelectorAll('[data-st]').forEach((b) => b.addEventListener('click', async () => {
+      const r = d.rows.find((x) => x.id === +b.dataset.st);
+      const to = r.status === 'Active' ? 'Inactive' : 'Active';
+      if (to === 'Inactive' && !(await confirmDialog({ title: 'Deactivate employee', message: `Deactivate <b>${esc(r.employee_name)}</b>? They will be signed out and cannot sign in.`, confirmText: 'Deactivate', danger: true }))) return;
+      try { await api(`/impl/employees/${r.id}/status`, { method: 'PATCH', body: { status: to } }); toast(`Employee ${to === 'Active' ? 'activated' : 'deactivated'}.`); renderEmployees(root); } catch (err) { toast(err.message, 'err'); }
+    }));
+  };
+  root.querySelector('[data-q]').addEventListener('input', draw);
+  root.querySelector('[data-add]').addEventListener('click', () => employeeForm(d, null, () => renderEmployees(root)));
+  draw();
+}
+
+function employeeForm(d, r, done) {
+  const v = r || { status: 'Active', face_attendance: 1, role_id: (d.roles.find((x) => x.name === 'Implementation Employee') || {}).id,
+    department_id: (d.departments.find((x) => /implement/i.test(x.name)) || {}).id };
+  const m = modal({
+    title: r ? `Edit ${r.employee_name}` : 'Add Implementation Employee', size: 'wide',
+    body: `<form class="form-grid" novalidate><div class="alert err full" hidden data-err></div>
+      <div class="alert info full">This employee can sign in to <b>Implementation</b> only. Ticket Tracking stays blocked for them.</div>
+      <div class="field"><label>Employee Name <span class="req">*</span></label><input class="input" name="employee_name" maxlength="150" value="${esc(v.employee_name)}"></div>
+      <div class="field"><label>Employee Code <span class="req">*</span></label><input class="input" name="employee_code" maxlength="30" value="${esc(v.employee_code)}"></div>
+      <div class="field"><label>Email ID <span class="req">*</span></label><input class="input" type="email" name="email" maxlength="150" value="${esc(v.email)}"></div>
+      <div class="field"><label>Mobile Number</label><input class="input" type="tel" name="mobile" maxlength="15" value="${esc(v.mobile)}"></div>
+      <div class="field"><label>Role <span class="req">*</span></label><select class="input" name="role_id"><option value="">Select role</option>${d.roles.map((x) => `<option value="${x.id}" ${x.id === v.role_id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>Department <span class="req">*</span></label><select class="input" name="department_id"><option value="">Select department</option>${d.departments.map((x) => `<option value="${x.id}" ${x.id === v.department_id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
+      <div class="field"><label>Username <span class="req">*</span></label><input class="input" name="username" maxlength="50" autocomplete="off" value="${esc(v.username)}"></div>
+      <div class="field"><label>${r ? 'New password (leave blank to keep)' : 'Password <span class="req">*</span>'}</label><input class="input" type="password" name="password" autocomplete="new-password"><span class="help">Min. 8 characters with a letter and a number. They must change it at first sign-in.</span></div>
+      <div class="field"><label>Status</label><select class="input" name="status"><option ${v.status === 'Active' ? 'selected' : ''}>Active</option><option ${v.status === 'Inactive' ? 'selected' : ''}>Inactive</option></select></div>
+      <div class="field"><label>Face attendance</label><label class="switch"><input type="checkbox" name="face_attendance" ${v.face_attendance ? 'checked' : ''}><span></span><b>Required</b></label><span class="help">Face check-in / check-out with live location.</span></div>
+    </form>`,
+    footer: '<button class="btn" data-close>Cancel</button><button class="btn btn-primary" data-save>Save</button>',
+  });
+  const form = m.$('form');
+  m.$('[data-save]').addEventListener('click', async () => {
+    const btn = m.$('[data-save]');
+    const body = Object.fromEntries(['employee_name', 'employee_code', 'email', 'mobile', 'role_id', 'department_id', 'username', 'password', 'status'].map((k) => [k, form[k].value]));
+    body.face_attendance = form.face_attendance.checked ? 1 : 0;
+    showFormError(form, null);
+    busy(btn, true);
+    try {
+      await api(r ? `/impl/employees/${r.id}` : '/impl/employees', { method: r ? 'PUT' : 'POST', body });
+      m.close();
+      toast(r ? 'Employee updated.' : 'Employee created. Share the username and temporary password; they sign in with "Implementation".');
+      await refreshLookups();
+      done();
+    } catch (err) { showFormError(form, err); busy(btn, false); }
+  });
+}

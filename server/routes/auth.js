@@ -24,6 +24,7 @@ function publicUser(u) {
     permissions: u.permissions,
     must_change_password: !!u.must_change_password,
     face_attendance: !!u.face_attendance,
+    app_scope: u.app_scope || 'all',
     last_login_at: u.last_login_at,
   };
 }

@@ -66,13 +66,34 @@ async function migrateFaceFlag() {
   });
 }
 
+// "Implementation Employee" role + employee management for the Implementation Manager.
+async function migrateEmployees() {
+  const key = 'impl_employee_role_v1';
+  if (await q.get('SELECT 1 AS x FROM app_meta WHERE key = ?', key)) return;
+  await tx(async () => {
+    if (!(await q.get("SELECT id FROM roles WHERE name = 'Implementation Employee'"))) {
+      await q.run('INSERT INTO roles (name, description, permissions) VALUES (?,?,?)', 'Implementation Employee',
+        'Implementation staff: Implementation login only (no Ticket Tracking). Tasks, daily status, visits, training, issues.',
+        JSON.stringify(['impl.view', 'impl.work']));
+    }
+    const im = await q.get("SELECT id, permissions FROM roles WHERE name = 'Implementation Manager'");
+    if (im) {
+      const p = JSON.parse(im.permissions || '[]');
+      if (!p.includes('impl.users')) p.push('impl.users');
+      await q.run('UPDATE roles SET permissions = ? WHERE id = ?', JSON.stringify(p), im.id);
+    }
+    await q.run("INSERT INTO app_meta (key, value) VALUES (?, 'done') ON CONFLICT (key) DO NOTHING", key);
+  });
+}
+
 async function setup() {
   await pool.query(schemaSql());
-  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS face_attendance INTEGER NOT NULL DEFAULT 0;');
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS face_attendance INTEGER NOT NULL DEFAULT 0; ALTER TABLE users ADD COLUMN IF NOT EXISTS app_scope TEXT NOT NULL DEFAULT 'all';");
   await pool.query(attendance.SCHEMA);
   await seedImpl();
   await migrateRoles();
   await migrateFaceFlag();
+  await migrateEmployees();
   const run = () => attendance.prune().catch((err) => console.error('Attendance cleanup failed:', err.message));
   run();
   setInterval(run, 12 * 60 * 60 * 1000).unref();

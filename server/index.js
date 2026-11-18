@@ -79,6 +79,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api', requireAuth, require('./routes/approvals'));
 app.use('/api/admin', requireAuth, require('./routes/admin'));
 app.use('/api/billing', requireAuth, require('./routes/billing'));
+app.use('/api/impl/employees', requireAuth, require('./impl/employees').router);
 app.use('/api/impl', requireAuth, require('./impl/routes'));
 app.use('/api/attendance', requireAuth, require('./attendance').router);
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));

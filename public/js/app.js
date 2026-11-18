@@ -4,7 +4,7 @@ import { renderApprovals, openApprovalForm } from './views/approvals.js';
 import { renderDepartments, renderRoles, renderUsers, renderClients, renderCompany } from './views/admin.js';
 import { renderBilling } from './views/billing.js';
 import {
-  renderImplDashboard, renderMyDay, renderImplClients, renderTaskApprovals, renderImplReports, renderImplMasters, renderSalesOrders, entityPage, resetImplCache,
+  renderImplDashboard, renderMyDay, renderImplClients, renderTaskApprovals, renderImplReports, renderImplMasters, renderSalesOrders, entityPage, resetImplCache, renderEmployees,
 } from './views/impl.js';
 import { renderAttendance, renderTeamAttendance, renderAttendanceSettings, startLocationPings, stopLocationPings } from './views/attendance.js';
 
@@ -56,6 +56,7 @@ const ROUTES = [
   { path: 'templates', label: 'Templates', icon: 'file', perm: 'impl.view', group: 'Implementation', render: entityPage('templates', 'Template Library', 'Master-data, consent and report templates shared with clients.') },
   { path: 'amc', label: 'AMC', icon: 'shield', perm: 'impl.view', show: () => can('impl.view') && (can('impl.view_all') || can('amc.manage')), group: 'Implementation', render: entityPage('amc', 'AMC', 'Annual maintenance contracts and renewals.') },
   { path: 'impl-reports', label: 'Implementation Reports', icon: 'excel', perm: 'impl.view', group: 'Implementation', render: renderImplReports },
+  { path: 'impl-employees', label: 'Implementation Employees', icon: 'users', perm: 'impl.users', group: 'Implementation', render: renderEmployees },
   { path: 'impl-masters', label: 'Implementation Masters', icon: 'settings', perm: 'impl.settings', show: () => can('impl.settings') || can('impl.manage'), group: 'Implementation', render: renderImplMasters },
   { mod: 'both', path: 'audit', label: 'Audit History', icon: 'history', perm: 'audit.view', group: 'Overview', render: renderAudit },
   { mod: 'both', path: 'departments', label: 'Departments', icon: 'building', perm: 'department.manage', group: 'Administration', render: renderDepartments },
@@ -139,8 +140,9 @@ function renderLogin(message) {
       const v = formValues(form);
       const { user } = await api('/auth/login', { method: 'POST', body: { username: v.username, password: v.password } });
       state.user = user;
-      const want = v.module === 'impl' ? 'impl' : 'tracking';
-      if (!user.must_change_password && !hasModule(want)) {
+      const picked = form.querySelector('input[name=module]:checked');
+      const want = picked && picked.value === 'impl' ? 'impl' : 'tracking';
+      if (!hasModule(want)) {
         const other = want === 'impl' ? 'tracking' : 'impl';
         await api('/auth/logout', { method: 'POST', body: {} }).catch(() => {});
         state.user = null;

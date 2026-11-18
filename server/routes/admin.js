@@ -372,6 +372,7 @@ router.delete('/clients/:id', requirePerm('client.manage'), async (req, res) => 
 });
 
 /* ---------------------------- Company settings ---------------------------- */
+// (readUser is shared with the Implementation employee screen)
 
 const COMPANY_FIELDS = ['company_name', 'address', 'state_code', 'gstin', 'pan', 'email', 'phone', 'website', 'bank_name', 'bank_account',
   'bank_ifsc', 'bank_branch', 'sac_code', 'default_rate', 'gst_rate', 'quote_validity_days', 'payment_terms_days', 'quotation_terms', 'invoice_terms'];
@@ -434,3 +435,4 @@ router.put('/company', requirePerm('company.manage'), async (req, res) => {
 });
 
 module.exports = router;
+module.exports.readUser = readUser;
