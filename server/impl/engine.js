@@ -274,6 +274,15 @@ async function applyRules(e, rec, before, user) {
     rec.client, rec.loc, rec.template, id))) {
     throw httpError(400, 'This template is already enabled for the location.', { field: 'template' });
   }
+  if (e.key === 'abreaks') {
+    rec.days = Math.round((Date.parse(rec.to_date) - Date.parse(rec.from_date)) / 864e5) + 1;
+    if (await q.get('SELECT id FROM im_abreaks WHERE client = ? AND eng = ? AND from_date <= ? AND to_date >= ? AND id <> ?', rec.client, rec.eng, rec.to_date, rec.from_date, id)) {
+      throw httpError(400, 'This break overlaps another break for the same engineer and client.', { field: 'from_date' });
+    }
+    if (!(await q.get('SELECT id FROM im_assign WHERE client = ? AND eng = ?', rec.client, rec.eng))) {
+      throw httpError(400, 'This engineer is not assigned to the selected client.', { field: 'eng' });
+    }
+  }
   if (e.key === 'training' && rec.attendees !== null && rec.attendees < 1) throw httpError(400, 'At least 1 attendee is required.', { field: 'attendees' });
   if (e.key === 'hw' && rec.available > rec.required && rec.status !== 'Ready') rec.status = 'Ready';
   if (e.key === 'locations' && (rec.lat === null) !== (rec.lng === null)) throw httpError(400, 'Enter both latitude and longitude, or neither.', { field: 'lat' });

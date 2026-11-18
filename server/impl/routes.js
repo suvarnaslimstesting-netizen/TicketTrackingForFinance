@@ -278,7 +278,7 @@ router.get('/myday', async (req, res) => {
   const u = req.user;
   const today = todayLocal();
   const soon = addDays(today, 3);
-  const myLocs = new Set((await q.all('SELECT loc, client FROM im_assign WHERE eng = ? AND from_date <= ? AND to_date >= ?', u.id, today, today)).map((a) => a.loc));
+  const myLocs = new Set((await q.all('SELECT loc, client FROM im_assign WHERE eng = ? AND from_date <= ? AND (to_date IS NULL OR to_date >= ?)', u.id, today, today)).map((a) => a.loc));
   const [tasks, visits, comms, issues, daily] = await Promise.all([scoped('tasks', u), scoped('visits', u), scoped('comms', u), scoped('issues', u), scoped('daily', u)]);
   res.json({
     today,
@@ -355,7 +355,7 @@ router.get('/client/:id', async (req, res) => {
 
 const REPORTS = {
   eng: 'Engineer performance', loc: 'Client and location status', task: 'Task status', daily: 'Daily status log', miss: 'Missing daily reports',
-  vis: 'Client visits', mods: 'Client and location modules', tmpl: 'Client and location templates', golive: 'Go-Live stages', trn: 'Training log',
+  onsite: 'Onsite days by client & employee', vis: 'Client visits', mods: 'Client and location modules', tmpl: 'Client and location templates', golive: 'Go-Live stages', trn: 'Training log',
   iss: 'Issues and change requests', hw: 'Hardware readiness', amc: 'AMC due and expired', so: 'Sales order register',
 };
 
@@ -417,6 +417,12 @@ async function buildReport(key, user, f) {
         for (const u of engs) if (!daily.some((x) => x.eng === u.id && x.work_date === d)) rows.push([dmy(d), u.name]);
       }
       return { headers: ['Date', 'Engineer'], rows, chart: { type: 'bar', labels: engs.map((u) => u.name), series: ['Missing days'], data: [engs.map((u) => rows.filter((r) => r[1] === u.name).length)] } };
+    }
+    case 'onsite': {
+      const r = await onsiteDays(user, f);
+      return { headers: ['Client', 'Engineer', 'Assignment', 'Assigned onsite days', 'Break days', 'Net onsite days', 'Days checked in at client', 'Today'],
+        rows: r.map((x) => [x.client, x.engineer, x.period, x.assigned, x.breaks, x.net, x.checkedIn, x.today]),
+        chart: { type: 'bar', labels: r.map((x) => `${x.engineer} – ${x.client}`), series: ['Net onsite days', 'Break days', 'Days checked in'], data: [r.map((x) => x.net), r.map((x) => x.breaks), r.map((x) => x.checkedIn)] } };
     }
     case 'vis': {
       const v = (await scoped('visits', user)).filter((x) => fc(x) && fe(x) && fd(x.planned_on));
@@ -488,6 +494,56 @@ function reportFilters(qs) {
   const int = (v) => (Number.isInteger(parseInt(v, 10)) ? parseInt(v, 10) : null);
   return { client: int(qs.client), loc: int(qs.loc), eng: int(qs.eng), from: isIsoDate(qs.from) ? qs.from : null, to: isIsoDate(qs.to) ? qs.to : null };
 }
+
+/* ---------------------------- Onsite day counts ---------------------------- */
+
+// Per client + engineer: calendar days on Onsite assignments (up to today or the end date),
+// minus break days, plus the days the engineer actually face-checked-in at that client's locations.
+async function onsiteDays(user, f = {}) {
+  const today = todayLocal();
+  const [assign, breaks] = await Promise.all([scoped('assign', user), scoped('abreaks', user)]);
+  const names = {
+    c: Object.fromEntries((await q.all('SELECT id, name FROM clients')).map((x) => [x.id, x.name])),
+    u: Object.fromEntries((await q.all('SELECT id, employee_name FROM users')).map((x) => [x.id, x.employee_name])),
+  };
+  const lo = f.from || '0000-01-01';
+  const hi = f.to && f.to < today ? f.to : today;
+  const days = (a, b) => { const out = []; for (let d = a; d <= b; d = addDays(d, 1)) out.push(d); return out; };
+  const groups = new Map();
+  for (const a of assign) {
+    if (a.work_mode !== 'Onsite') continue;
+    if ((f.client && a.client !== f.client) || (f.eng && a.eng !== f.eng)) continue;
+    const key = `${a.client}|${a.eng}`;
+    if (!groups.has(key)) groups.set(key, { client: a.client, eng: a.eng, dates: new Set(), periods: [] });
+    const g = groups.get(key);
+    g.periods.push(`${a.from_date.split('-').reverse().join('-')} → ${a.to_date ? a.to_date.split('-').reverse().join('-') : 'ongoing'}`);
+    const s = a.from_date > lo ? a.from_date : lo;
+    const e = (a.to_date || today) < hi ? (a.to_date || today) : hi;
+    if (s <= e) days(s, e).forEach((d) => g.dates.add(d));
+  }
+  const out = [];
+  for (const g of groups.values()) {
+    const off = new Set();
+    let onBreakToday = false;
+    for (const b of breaks.filter((x) => x.client === g.client && x.eng === g.eng)) {
+      days(b.from_date, b.to_date).forEach((d) => { if (g.dates.has(d)) off.add(d); });
+      if (b.from_date <= today && b.to_date >= today) onBreakToday = true;
+    }
+    const locs = (await q.all('SELECT id FROM im_locations WHERE client = ?', g.client)).map((l) => l.id);
+    const checkedIn = locs.length ? (await q.get(
+      `SELECT COUNT(DISTINCT adate) AS n FROM att_days WHERE user_id = ? AND in_loc IN (${locs.map(() => '?').join(',')}) AND adate BETWEEN ? AND ?`,
+      g.eng, ...locs, lo, hi)).n : 0;
+    const active = assign.some((a) => a.client === g.client && a.eng === g.eng && a.work_mode === 'Onsite' && a.from_date <= today && (!a.to_date || a.to_date >= today));
+    out.push({
+      client: names.c[g.client] || '-', engineer: names.u[g.eng] || '-', period: g.periods.join(', '),
+      assigned: g.dates.size, breaks: off.size, net: g.dates.size - off.size, checkedIn,
+      today: onBreakToday ? 'On break' : active ? 'Onsite' : 'Not assigned today',
+    });
+  }
+  return out.sort((a, b) => a.client.localeCompare(b.client) || a.engineer.localeCompare(b.engineer));
+}
+
+router.get('/onsite-days', async (req, res) => res.json(await onsiteDays(req.user, reportFilters(req.query))));
 
 router.get('/reports', (req, res) => res.json(Object.entries(REPORTS).filter(([k]) => (k === 'amc' ? E.canSee(ENTITIES.amc, req.user) : k === 'so' ? E.canSee(ENTITIES.sorders, req.user) : true)).map(([key, title]) => ({ key, title }))));
 

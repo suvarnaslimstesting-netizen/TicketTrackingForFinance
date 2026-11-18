@@ -4,7 +4,7 @@ import { renderApprovals, openApprovalForm } from './views/approvals.js';
 import { renderDepartments, renderRoles, renderUsers, renderClients, renderCompany } from './views/admin.js';
 import { renderBilling } from './views/billing.js';
 import {
-  renderImplDashboard, renderMyDay, renderImplClients, renderTaskApprovals, renderImplReports, renderImplMasters, renderSalesOrders, entityPage, resetImplCache, renderEmployees,
+  renderImplDashboard, renderMyDay, renderImplClients, renderTaskApprovals, renderImplReports, renderImplMasters, renderSalesOrders, entityPage, resetImplCache, renderEmployees, renderAssignments,
 } from './views/impl.js';
 import { renderAttendance, renderTeamAttendance, renderAttendanceSettings, startLocationPings, stopLocationPings } from './views/attendance.js';
 
@@ -46,7 +46,7 @@ const ROUTES = [
   { path: 'impl', label: 'Implementation Dashboard', icon: 'trend', perm: 'impl.view', group: 'Implementation', render: renderImplDashboard },
   { path: 'impl-clients', label: 'Clients 360', icon: 'briefcase', perm: 'impl.view', group: 'Implementation', render: renderImplClients },
   { path: 'sales-orders', label: 'Sales Orders', icon: 'file', perm: 'impl.view', show: () => can('impl.view') && (can('impl.view_all') || can('salesorder.manage')), group: 'Implementation', render: renderSalesOrders },
-  { path: 'assignments', label: 'Engineer Assignments', icon: 'users', perm: 'impl.view', group: 'Implementation', render: entityPage('assign', 'Engineer Assignments', 'Which engineer works at which client location, and when.') },
+  { path: 'assignments', label: 'Engineer Assignments', icon: 'users', perm: 'impl.view', group: 'Implementation', render: renderAssignments },
   { path: 'tasks', label: 'Module Tasks', icon: 'layers', perm: 'impl.view', group: 'Implementation', render: entityPage('tasks', 'Module Tasks', 'Tasks per client location and module. Completing a task needs evidence; it may need approval.') },
   { path: 'task-approvals', label: 'Task Approvals', icon: 'check', perm: 'task.approve', group: 'Implementation', render: renderTaskApprovals },
   { path: 'daily', label: 'Daily Status', icon: 'calendar', perm: 'impl.view', group: 'Implementation', render: entityPage('daily', 'Daily Status', 'Daily work report of each engineer.') },

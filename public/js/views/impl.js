@@ -610,3 +610,38 @@ function employeeForm(d, r, done) {
     } catch (err) { showFormError(form, err); busy(btn, false); }
   });
 }
+
+/* --------------------------- Engineer assignments --------------------------- */
+
+const onsiteF = { client: '', eng: '', from: '', to: '' };
+export async function renderAssignments(root) {
+  await boot();
+  root.innerHTML = pageHead('Engineer Assignments', 'Who works at which client and when. Leave "To date" blank for an ongoing assignment; record breaks when the engineer is away from the site.') + `
+    <div data-a></div><div data-b></div>
+    <div class="card" data-sum><div class="card-head"><h3>Onsite days by client &amp; employee</h3>
+      <div class="actions"><button class="btn btn-sm" data-xl>${icon('excel')} Excel</button></div></div>
+      <form class="card-body filters" data-f novalidate style="padding-bottom:0">
+        <div class="field"><label>Client</label><select class="input" name="client"><option value="">All clients</option>${LK.clients.map((c) => `<option value="${c.id}" ${String(c.id) === onsiteF.client ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
+        <div class="field"><label>Engineer</label><select class="input" name="eng"><option value="">All engineers</option>${LK.users.filter((u) => u.status === 'Active').map((u) => `<option value="${u.id}" ${String(u.id) === onsiteF.eng ? 'selected' : ''}>${esc(u.name)}</option>`).join('')}</select></div>
+        <div class="field"><label>From date</label><input class="input" type="date" name="from" value="${esc(onsiteF.from)}"></div>
+        <div class="field"><label>To date</label><input class="input" type="date" name="to" value="${esc(onsiteF.to)}"></div>
+      </form>
+      <div class="help" style="padding:8px 16px 0">Assigned onsite days = calendar days on Onsite assignments up to today (or the end date). Net = assigned minus break days. "Checked in" = days with a face check-in at that client's locations.</div>
+      <div class="table-wrap" data-sumt><div class="empty small">Loading…</div></div></div>`;
+  const sum = async () => {
+    const t = root.querySelector('[data-sumt]');
+    try {
+      const rows = await api(`/impl/onsite-days${qs(onsiteF)}`);
+      t.innerHTML = rows.length ? `<table class="tbl tbl-compact"><thead><tr><th>Client</th><th>Engineer</th><th>Assignment</th><th class="num">Assigned onsite days</th><th class="num">Break days</th><th class="num">Net onsite days</th><th class="num">Days checked in</th><th>Today</th></tr></thead><tbody>
+        ${rows.map((x) => `<tr><td><b>${esc(x.client)}</b></td><td>${esc(x.engineer)}</td><td><span class="sub" style="margin:0">${esc(x.period)}</span></td>
+          <td class="num">${x.assigned}</td><td class="num">${x.breaks}</td><td class="num"><span class="md-pill">${x.net}</span></td><td class="num">${x.checkedIn}</td>
+          <td>${x.today === 'Onsite' ? '<span class="badge ok">Onsite</span>' : x.today === 'On break' ? '<span class="badge warn">On break</span>' : '<span class="badge off">Not assigned today</span>'}</td></tr>`).join('')}</tbody></table>`
+        : '<div class="empty small"><b>No onsite assignments</b>Only assignments with work mode "Onsite" are counted.</div>';
+    } catch (err) { t.innerHTML = `<div class="alert err">${esc(err.message)}</div>`; }
+  };
+  root.querySelector('[data-f]').addEventListener('change', (e) => { onsiteF[e.target.name] = e.target.value; sum(); });
+  root.querySelector('[data-xl]').addEventListener('click', () => download(`/impl/reports/onsite${qs({ ...onsiteF, format: 'xlsx' })}`).catch((err) => toast(err.message, 'err')));
+  await crudCard(root.querySelector('[data-a]'), 'assign', { onChange: sum });
+  if (META.entities.abreaks) await crudCard(root.querySelector('[data-b]'), 'abreaks', { title: 'Breaks (engineer not at client site)', onChange: sum });
+  await sum();
+}

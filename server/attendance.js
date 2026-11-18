@@ -86,7 +86,7 @@ function requireFace(req, res, next) {
 // Locations the user may punch at: those of their current assignments (plus all locations of assigned clients).
 async function myLocations(userId) {
   const today = todayLocal();
-  const assigned = await q.all('SELECT client, loc FROM im_assign WHERE eng = ? AND from_date <= ? AND to_date >= ?', userId, today, today);
+  const assigned = await q.all('SELECT client, loc FROM im_assign WHERE eng = ? AND from_date <= ? AND (to_date IS NULL OR to_date >= ?)', userId, today, today);
   if (!assigned.length) return [];
   const clients = [...new Set(assigned.map((a) => a.client))];
   const locs = await q.all(

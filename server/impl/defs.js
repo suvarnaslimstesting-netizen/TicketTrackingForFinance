@@ -73,7 +73,12 @@ const ENTITIES = {
   assign: {
     title: 'Engineer assignments', write: ['impl.manage'], cols: 'client,loc,eng,work_mode,assign_role,from_date,to_date',
     fields: ['client|Client|r*|ref:clients', 'loc|Location|r|ref:locations', 'eng|Engineer|r*|ref:users', 'work_mode|Work mode|s*|Onsite,Offsite',
-      'assign_role|Role|s|Lead,Support', 'from_date|From date|d*', 'to_date|To date|d*'],
+      'assign_role|Role|s|Lead,Support', 'from_date|From date|d*', 'to_date|To date (blank = ongoing)|d'],
+  },
+  abreaks: {
+    title: 'Breaks (not at client site)', write: ['impl.manage'], label: 'reason', cols: 'client,eng,from_date,to_date,days,reason',
+    fields: ['client|Client|r*|ref:clients', 'eng|Engineer|r*|ref:users', 'from_date|Break from|d*', 'to_date|Break to|d*',
+      'days|Break days|sys', 'reason|Reason|t'],
   },
   templates: {
     title: 'Template library', write: ['impl.manage'], label: 'name', cols: 'name,category,version,file',
