@@ -118,6 +118,7 @@ router.get('/me', async (req, res) => {
     enrolled: !!enrol, enrolledAt: enrol ? enrol.enrolled_at : null, now: now.t,
     today: today || null, history, locations: await myLocations(u.id), photoDays: PHOTO_DAYS,
     pings: { count: pings.n, last: pings.last }, pingMinutes: 15,
+    lastPoint: await q.get('SELECT ts, lat, lng, acc FROM att_pings WHERE user_id = ? AND ts LIKE ? ORDER BY id DESC LIMIT 1', u.id, todayLocal() + '%'),
   });
 });
 

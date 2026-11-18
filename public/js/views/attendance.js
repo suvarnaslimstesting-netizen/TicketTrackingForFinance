@@ -140,6 +140,9 @@ export function stopLocationPings() { clearInterval(pingTimer); pingTimer = null
 const GEO = { Inside: 'ok', Outside: 'bad', Remote: 'info', 'No geofence': 'off' };
 const geoBadge = (g, d) => (g ? `<span class="badge ${GEO[g] || 'off'}">${esc(g)}${d != null ? ` · ${fmtNum(d)} m` : ''}</span>` : '');
 const hm = (t) => (t ? t.slice(11, 16) : '—');
+const mapLink = (lat, lng) => `<a class="map-link" href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}" target="_blank" rel="noopener noreferrer">Open map ↗</a>`;
+const coordsLine = (lat, lng, acc) => (lat != null && lng != null
+  ? `<span class="sub coords"><span class="mono">${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}</span>${acc != null ? ` ±${Math.round(acc)} m` : ''} · ${mapLink(lat, lng)}</span>` : '');
 const photo = (id, label) => (id ? `<button type="button" class="ph-btn" data-ph="${id}" title="${esc(label)}"><img src="/api/attendance/photo/${id}" alt="${esc(label)}" loading="lazy"></button>` : '');
 
 function photoClicks(root) {
@@ -208,11 +211,12 @@ export async function renderAttendance(root) {
         <div class="card-head"><h3>${icon('pin')} Live location</h3><small data-live-status>Locating…</small></div>
         <div class="map att-map" data-map></div>
         <div class="live-facts"><div><span>Accuracy</span><b data-acc>—</b></div><div><span>Updated</span><b data-upd>—</b></div><div><span>Site</span><b data-site>—</b></div><div><span>Geofence</span><b data-geo>—</b></div></div>
+        <div class="live-coords" data-coords>${icon('pin')} Waiting for location…</div>
       </div>
     </div>
     <div class="card"><div class="card-head"><h3>My last 31 days</h3><button class="btn btn-sm" data-xl>${icon('excel')} Excel</button></div><div class="table-wrap">${d.history.length ? `<table class="tbl tbl-compact"><thead><tr><th>Date</th><th>Check-in</th><th>Location</th><th>Check-out</th><th>Location</th><th class="num">Hours</th></tr></thead><tbody>
-      ${d.history.map((h) => `<tr><td>${fmtDate(h.adate)}</td><td>${hm(h.in_time)} ${photo(h.in_photo, 'Check-in photo')}</td><td>${esc(h.in_loc_name || 'Office / remote')} ${geoBadge(h.in_geo, h.in_dist)}</td>
-        <td>${h.out_time ? `${hm(h.out_time)} ${photo(h.out_photo, 'Check-out photo')}` : '<span class="badge warn">Not checked out</span>'}</td><td>${h.out_time ? `${esc(h.out_loc_name || 'Office / remote')} ${geoBadge(h.out_geo, h.out_dist)}` : ''}</td><td class="num">${h.hours != null ? fmtNum(h.hours) : '—'}</td></tr>`).join('')}</tbody></table>` : '<div class="empty small">No attendance yet.</div>'}</div></div>`;
+      ${d.history.map((h) => `<tr><td>${fmtDate(h.adate)}</td><td>${hm(h.in_time)} ${photo(h.in_photo, 'Check-in photo')}</td><td>${esc(h.in_loc_name || 'Office / remote')} ${geoBadge(h.in_geo, h.in_dist)}${coordsLine(h.in_lat, h.in_lng, h.in_acc)}</td>
+        <td>${h.out_time ? `${hm(h.out_time)} ${photo(h.out_photo, 'Check-out photo')}` : '<span class="badge warn">Not checked out</span>'}</td><td>${h.out_time ? `${esc(h.out_loc_name || 'Office / remote')} ${geoBadge(h.out_geo, h.out_dist)}${coordsLine(h.out_lat, h.out_lng, h.out_acc)}` : ''}</td><td class="num">${h.hours != null ? fmtNum(h.hours) : '—'}</td></tr>`).join('')}</tbody></table>` : '<div class="empty small">No attendance yet.</div>'}</div></div>`;
   photoClicks(root);
   root.querySelector('[data-xl]').addEventListener('click', () => download(`/attendance/report${qs({ from: d.history.length ? d.history[d.history.length - 1].adate : today(), to: today(), format: 'xlsx' })}`).catch((err) => toast(err.message, 'err')));
 
@@ -238,15 +242,17 @@ export async function renderAttendance(root) {
     const id = siteSel ? +siteSel.value : st === 'in' || st === 'out' ? t.in_loc : null;
     return d.locations.find((l) => l.id === id) || null;
   };
+  // pos = { lat, lng, acc, at (label for the time), live (true = from this device now) }
   const setFacts = (pos) => {
     const s = site();
     root.querySelector('[data-site]').textContent = s ? `${s.client_name} – ${s.name}` : 'Office / remote';
     if (!pos) return;
-    root.querySelector('[data-acc]').textContent = `±${Math.round(pos.coords.accuracy)} m`;
-    root.querySelector('[data-upd]').textContent = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    root.querySelector('[data-acc]').textContent = pos.acc != null ? `±${Math.round(pos.acc)} m` : '—';
+    root.querySelector('[data-upd]').textContent = pos.at;
+    root.querySelector('[data-coords]').innerHTML = `${icon('pin')} <span class="mono">${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}</span>${pos.live ? '' : ' <span class="badge off plain">last known</span>'} ${mapLink(pos.lat, pos.lng)}`;
     const g = root.querySelector('[data-geo]');
     if (s && s.lat != null) {
-      const m = Math.round(haversine(pos.coords.latitude, pos.coords.longitude, s.lat, s.lng));
+      const m = Math.round(haversine(pos.lat, pos.lng, s.lat, s.lng));
       const inside = m <= (s.radius_m || 300);
       g.innerHTML = `<span class="badge ${inside ? 'ok' : 'bad'}">${inside ? 'Inside' : 'Outside'} · ${fmtNum(m)} m</span>`;
     } else g.innerHTML = '<span class="badge off">No geofence</span>';
@@ -257,9 +263,10 @@ export async function renderAttendance(root) {
     const s = site();
     siteLayer = s && s.lat != null ? window.L.circle([s.lat, s.lng], { radius: s.radius_m || 300, color: '#12932f', weight: 1, fillOpacity: 0.1 }).addTo(map).bindTooltip(`${esc(s.client_name)} – ${esc(s.name)}`) : null;
   };
-  let lastPos = null;
-  siteSel?.addEventListener('change', () => { drawSite(); setFacts(lastPos); });
-  setFacts(null);
+  let lastPos = null; // raw browser position, reused for check-in / check-out
+  let shown = d.lastPoint ? { lat: d.lastPoint.lat, lng: d.lastPoint.lng, acc: d.lastPoint.acc, at: `${hm(d.lastPoint.ts)} (saved)`, live: false } : null;
+  siteSel?.addEventListener('change', () => { drawSite(); setFacts(shown); });
+  setFacts(shown);
   try {
     loadCss('/vendor/leaflet/leaflet.css');
     await loadScript('/vendor/leaflet/leaflet.js');
@@ -270,25 +277,35 @@ export async function renderAttendance(root) {
     const s = site();
     if (s && s.lat != null) map.setView([s.lat, s.lng], 15);
   } catch { root.querySelector('[data-map]').innerHTML = '<div class="empty small">Map could not be loaded.</div>'; }
+  let first = true;
+  const plot = (p) => {
+    shown = p;
+    setFacts(p);
+    if (!map) return;
+    const ll = [p.lat, p.lng];
+    if (!me) {
+      ring = window.L.circle(ll, { radius: p.acc || 30, color: '#2c6a98', weight: 1, fillOpacity: 0.12 }).addTo(map);
+      me = window.L.circleMarker(ll, { radius: 8, color: '#fff', weight: 3, fillColor: p.live ? '#2c6a98' : '#64748b', fillOpacity: 1 }).addTo(map).bindTooltip('You');
+    } else { me.setLatLng(ll).setStyle({ fillColor: p.live ? '#2c6a98' : '#64748b' }); ring.setLatLng(ll).setRadius(p.acc || 30); }
+    if (first) { first = false; map.setView(ll, 16); }
+  };
+  if (shown) plot(shown);
   const status = root.querySelector('[data-live-status]');
-  if (!navigator.geolocation) status.textContent = 'Location not supported on this device';
-  else {
-    let first = true;
+  const setStatus = (text, cls) => { status.textContent = text; status.className = cls; };
+  // High-accuracy GPS first; laptops and indoor phones often can't give it, so fall back to normal accuracy.
+  const startWatch = (high) => {
     watch = navigator.geolocation.watchPosition((pos) => {
       lastPos = pos;
-      status.textContent = 'Live';
-      status.className = 'live-on';
-      setFacts(pos);
-      if (!map) return;
-      const ll = [pos.coords.latitude, pos.coords.longitude];
-      if (!me) {
-        ring = window.L.circle(ll, { radius: pos.coords.accuracy, color: '#2c6a98', weight: 1, fillOpacity: 0.12 }).addTo(map);
-        me = window.L.circleMarker(ll, { radius: 8, color: '#fff', weight: 3, fillColor: '#2c6a98', fillOpacity: 1 }).addTo(map).bindTooltip('You');
-      } else { me.setLatLng(ll); ring.setLatLng(ll).setRadius(pos.coords.accuracy); }
-      if (first) { first = false; map.setView(ll, 16); }
-    }, (err) => { status.textContent = err.code === 1 ? 'Location permission denied' : 'Location unavailable'; status.className = 'live-off'; },
-    { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 });
-  }
+      setStatus(high ? 'Live' : 'Live (approximate)', 'live-on');
+      plot({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy, at: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }), live: true });
+    }, (err) => {
+      if (err.code === 1) { setStatus('Location permission denied – allow location for this site', 'live-off'); return; }
+      if (high) { navigator.geolocation.clearWatch(watch); setStatus('Trying approximate location…', ''); startWatch(false); return; }
+      setStatus(shown ? 'Live location unavailable – showing last saved' : 'Location unavailable – turn on GPS / location', 'live-off');
+    }, { enableHighAccuracy: high, maximumAge: high ? 10000 : 60000, timeout: high ? 15000 : 30000 });
+  };
+  if (!navigator.geolocation) setStatus('Location not supported on this device', 'live-off');
+  else startWatch(true);
 
   /* ---- enrol / punch ---- */
   const consent = root.querySelector('[data-consent]');
@@ -360,8 +377,8 @@ export async function renderTeamAttendance(root) {
       ${d.rows.map((r) => { const x = r.day || {}; return `<tr>
         <td><b>${esc(r.name)}</b><span class="sub">${esc(r.role)} · ${esc(r.code)}</span></td>
         <td>${r.enrolled ? '<span class="badge ok">Enrolled</span>' : '<span class="badge warn">Not enrolled</span>'}</td>
-        <td>${x.in_time ? `${hm(x.in_time)} ${photo(x.in_photo, `${r.name} check-in`)}<span class="sub">${esc(x.in_client ? `${x.in_client} – ${x.in_loc_name}` : 'Office / remote')} ${geoBadge(x.in_geo, x.in_dist)}</span>` : '<span class="badge bad">Absent</span>'}</td>
-        <td>${x.out_time ? `${hm(x.out_time)} ${photo(x.out_photo, `${r.name} check-out`)}<span class="sub">${esc(x.out_client ? `${x.out_client} – ${x.out_loc_name}` : 'Office / remote')} ${geoBadge(x.out_geo, x.out_dist)}</span>` : x.in_time ? '<span class="badge warn">Not yet</span>' : '—'}</td>
+        <td>${x.in_time ? `${hm(x.in_time)} ${photo(x.in_photo, `${r.name} check-in`)}<span class="sub">${esc(x.in_client ? `${x.in_client} – ${x.in_loc_name}` : 'Office / remote')} ${geoBadge(x.in_geo, x.in_dist)}</span>${coordsLine(x.in_lat, x.in_lng, x.in_acc)}` : '<span class="badge bad">Absent</span>'}</td>
+        <td>${x.out_time ? `${hm(x.out_time)} ${photo(x.out_photo, `${r.name} check-out`)}<span class="sub">${esc(x.out_client ? `${x.out_client} – ${x.out_loc_name}` : 'Office / remote')} ${geoBadge(x.out_geo, x.out_dist)}</span>${coordsLine(x.out_lat, x.out_lng, x.out_acc)}` : x.in_time ? '<span class="badge warn">Not yet</span>' : '—'}</td>
         <td class="num">${x.hours != null ? fmtNum(x.hours) : '—'}</td>
         <td>${r.pings ? `${hm(r.pings.last)}<span class="sub">${r.pings.n} location point(s)</span>` : '—'}</td>
         <td class="row-actions">${r.pings ? `<button class="btn btn-sm" data-route="${r.id}">${icon('pin')} Route</button>` : ''}
