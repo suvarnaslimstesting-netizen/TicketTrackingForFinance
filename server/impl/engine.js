@@ -438,6 +438,20 @@ async function deleteRecord(e, id, user) {
   });
 }
 
+// Every client gets a main location from its client master (city / billing address) when it has none,
+// so it can be picked straight away in assignments, attendance and other forms.
+async function ensureDefaultLocation(clientId, userId) {
+  if (await q.get('SELECT 1 AS x FROM im_locations WHERE client = ? LIMIT 1', clientId)) return null;
+  const c = await q.get('SELECT id, name, city, billing_address, phone FROM clients WHERE id = ?', clientId);
+  if (!c) return null;
+  const city = (c.city || '').trim();
+  const name = city || 'Main';
+  const address = (c.billing_address || '').trim() || city || c.name;
+  const r = await q.insert('INSERT INTO im_locations (client, name, address, city, radius_m, created_by) VALUES (?,?,?,?,300,?)', c.id, name, address, city || name, userId || null);
+  await audit({ entity: 'IMPLEMENTATION', entityId: r.lastInsertRowid, action: 'CREATE', remarks: `Locations: "${name}" created automatically for client ${c.name} from the client master` });
+  return r.lastInsertRowid;
+}
+
 // Used by the client master: a client with implementation records cannot be deleted.
 async function clientInUse(clientId) {
   for (const e of Object.values(ENTITIES)) {
@@ -448,5 +462,5 @@ async function clientInUse(clientId) {
 
 module.exports = {
   schemaSql, seedImpl, encrypt, decrypt, saveFile, has, seesAll, allowedClients, canSee, canWrite, settings, masterOptions,
-  listRows, getRow, saveRecord, deleteRecord, generateTasks, ensureModule, clientInUse, decorate, DOC_TYPES,
+  listRows, getRow, saveRecord, deleteRecord, generateTasks, ensureModule, clientInUse, decorate, DOC_TYPES, ensureDefaultLocation,
 };

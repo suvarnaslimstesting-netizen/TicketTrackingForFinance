@@ -329,6 +329,7 @@ router.post('/clients', requirePerm('client.manage'), async (req, res) => {
       entity: 'CLIENT', entityId: id, action: 'CREATE', remarks: `Client "${c.name}" created`, user: req.user,
       changes: { departments: { from: null, to: (await clientDepts(id)).map((d) => d.name).join(', ') } },
     });
+    await require('../impl/engine').ensureDefaultLocation(id, req.user.id);
     return id;
   });
   res.status(201).json({ id });
@@ -347,6 +348,7 @@ router.put('/clients/:id', requirePerm('client.manage'), async (req, res) => {
       c.client_code, c.client_type, c.city, c.phone, c.task_approval, before.id
     );
     await saveClientDepts(before.id, c.department_ids);
+    await require('../impl/engine').ensureDefaultLocation(before.id, req.user.id);
     const changes = diff(before, c, ['name', 'description', 'status', ...CLIENT_BILLING]);
     const afterNames = (await clientDepts(before.id)).map((d) => d.name).join(', ');
     if (afterNames !== beforeNames) changes.departments = { from: beforeNames || null, to: afterNames };

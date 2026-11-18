@@ -1,6 +1,6 @@
 // Creates the Implementation + Attendance tables and applies one-off role updates.
 const { pool, q, tx } = require('../db');
-const { schemaSql, seedImpl } = require('./engine');
+const { schemaSql, seedImpl, ensureDefaultLocation } = require('./engine');
 const attendance = require('../attendance');
 
 const IMPL_ROLES = [
@@ -94,6 +94,11 @@ async function setup() {
   await migrateRoles();
   await migrateFaceFlag();
   await migrateEmployees();
+  // One-off: existing clients without any location get their main location from the client master.
+  if (!(await q.get("SELECT 1 AS x FROM app_meta WHERE key = 'default_locations_v1'"))) {
+    for (const c of await q.all('SELECT id FROM clients')) await ensureDefaultLocation(c.id, null);
+    await q.run("INSERT INTO app_meta (key, value) VALUES ('default_locations_v1', 'done') ON CONFLICT (key) DO NOTHING");
+  }
   const run = () => attendance.prune().catch((err) => console.error('Attendance cleanup failed:', err.message));
   run();
   setInterval(run, 12 * 60 * 60 * 1000).unref();

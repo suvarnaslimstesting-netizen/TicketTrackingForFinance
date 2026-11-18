@@ -48,7 +48,7 @@ const STD_TASKS = {
 const ENTITIES = {
   locations: {
     title: 'Locations', write: ['impl.manage'], label: 'name', cols: 'client,name,city,pin,radius_m',
-    fields: ['client|Client|r*|ref:clients', 'name|Location / branch|t*', 'address|Address|a*', 'city|City|t*', 'pin|PIN code|z*',
+    fields: ['client|Client|r*|ref:clients', 'name|Location / branch|t*', 'address|Address|a*', 'city|City|t*', 'pin|PIN code|z',
       'contact|Contact number|m', 'lat|Latitude|n', 'lng|Longitude|n', 'radius_m|Check-in radius (metres)|n'],
   },
   contacts: {
