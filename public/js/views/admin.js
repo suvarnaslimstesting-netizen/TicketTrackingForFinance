@@ -14,6 +14,23 @@ function listPage(root, { title, subtitle, addLabel, searchPlaceholder, extraFil
   return { add: root.querySelector('[data-add]'), search: root.querySelector('[data-search]'), table: root.querySelector('[data-table]'), count: root.querySelector('[data-count]') };
 }
 
+let STATE_LIST = [];
+const stateLabel = (code) => {
+  const s = STATE_LIST.find((x) => x.code === code);
+  return s ? `${s.name} (${s.code})` : code;
+};
+const stateSelect = (states, value, name = 'state_code') => {
+  STATE_LIST = states;
+  return `<select class="input" name="${name}"><option value="">Select State</option>${states.map((s) => `<option value="${s.code}" ${s.code === value ? 'selected' : ''}>${esc(s.name)} (${s.code})</option>`).join('')}</select>`;
+};
+// The first two digits of a GSTIN are the GST state code.
+function bindGstinState(gstin, state) {
+  gstin.addEventListener('input', () => {
+    const code = gstin.value.trim().slice(0, 2);
+    if (/^\d{2}$/.test(code) && [...state.options].some((o) => o.value === code)) state.value = code;
+  });
+}
+
 const statusSelect = (v = 'Active') =>
   `<select class="input" name="status"><option ${v === 'Active' ? 'selected' : ''}>Active</option><option ${v === 'Inactive' ? 'selected' : ''}>Inactive</option></select>`;
 
@@ -217,19 +234,19 @@ export async function renderClients(root) {
     const term = ui.search.value.trim().toLowerCase();
     const list = rows.filter((r) => matches(r, term, ['name', 'description']));
     ui.count.textContent = `${list.length} client(s)`;
-    ui.table.innerHTML = list.length ? `<table class="tbl"><thead><tr><th>Client Name</th><th>Department(s)</th><th>Description</th><th class="num">Approved Tickets</th><th>Status</th><th>Created Date</th><th class="row-actions">Actions</th></tr></thead><tbody>
+    ui.table.innerHTML = list.length ? `<table class="tbl"><thead><tr><th>Client Name</th><th>Department(s)</th><th>GSTIN / State</th><th class="num">Approved Tickets</th><th>Status</th><th>Created Date</th><th class="row-actions">Actions</th></tr></thead><tbody>
       ${list.map((c) => `<tr><td><b>${esc(c.name)}</b></td>
         <td>${(c.department_names || []).length ? c.department_names.map((n) => `<span class="tag" style="margin:2px 4px 2px 0">${esc(n)}</span>`).join('') : '<span class="badge warn">Not mapped</span>'}</td>
-        <td>${esc(c.description) || '—'}</td><td class="num">${c.ticket_count}</td><td>${statusBadge(c.status)}</td><td>${fmtDate(c.created_at)}</td>
+        <td>${c.gstin ? `<span class="nowrap">${esc(c.gstin)}</span>` : '<span class="badge warn">No GSTIN</span>'}${c.state_code ? `<span class="sub">${esc(stateLabel(c.state_code))}</span>` : ''}</td><td class="num">${c.ticket_count}</td><td>${statusBadge(c.status)}</td><td>${fmtDate(c.created_at)}</td>
         <td class="row-actions"><button class="icon-btn" data-edit="${c.id}" title="Edit" aria-label="Edit">${icon('edit')}</button><button class="icon-btn danger" data-del="${c.id}" title="Delete" aria-label="Delete">${icon('trash')}</button></td></tr>`).join('')}
       </tbody></table>` : '<div class="empty"><b>No clients found</b></div>';
     ui.table.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => open(rows.find((r) => r.id === +b.dataset.edit))));
     ui.table.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => del(rows.find((r) => r.id === +b.dataset.del))));
   };
-  const load = async () => { rows = await api('/admin/clients'); draw(); loadLookups(true); };
+  const load = async () => { STATE_LIST = (await loadLookups(true)).states; rows = await api('/admin/clients'); draw(); };
   const open = async (c = {}) => {
     c = { department_ids: [], department_names: [], ...c };
-    const { departments } = await loadLookups(true);
+    const { departments, states } = await loadLookups(true);
     // Show active departments, plus any inactive one the client is already mapped to.
     const extra = (c.department_ids || []).filter((id) => !departments.some((d) => d.id === id))
       .map((id) => ({ id, name: (c.department_names || [])[c.department_ids.indexOf(id)] || `Department #${id}` }));
@@ -245,6 +262,12 @@ export async function renderClients(root) {
           <div class="dept-chips">${options.map((d) => `<label class="dept-chip"><input type="checkbox" name="department_ids" value="${d.id}" ${(c.department_ids || []).includes(d.id) ? 'checked' : ''}><span>${esc(d.name)}</span></label>`).join('')}</div>
           <div class="dept-tools"><button type="button" class="btn btn-sm btn-ghost" data-dall>Select all</button><button type="button" class="btn btn-sm btn-ghost" data-dnone>Clear</button></div>
         </div></div>
+      <div class="field full"><div class="section-title" style="margin-top:4px">Billing details (used on quotations &amp; invoices)</div></div>
+      <div class="field full"><label>Billing Address</label><textarea class="input" name="billing_address" maxlength="500" placeholder="Registered / billing address">${esc(c.billing_address)}</textarea></div>
+      <div class="field"><label>GSTIN</label><input class="input" name="gstin" maxlength="15" style="text-transform:uppercase" placeholder="e.g. 27ABCDE1234F1Z5" value="${esc(c.gstin)}"></div>
+      <div class="field"><label>State</label>${stateSelect(states, c.state_code)}<span class="help">Filled from the GSTIN automatically.</span></div>
+      <div class="field"><label>Contact Person</label><input class="input" name="contact_person" maxlength="150" value="${esc(c.contact_person)}"></div>
+      <div class="field"><label>Contact Email</label><input class="input" name="contact_email" maxlength="300" placeholder="Quotations / invoices are sent here" value="${esc(c.contact_email)}"></div>
       <div class="field full"><label>Description</label><textarea class="input" name="description" maxlength="500">${esc(c.description)}</textarea></div>
       <div class="field"><label>Status</label>${statusSelect(c.status)}</div>`,
     onSubmit: async (v) => {
@@ -254,6 +277,7 @@ export async function renderClients(root) {
       load();
     },
     });
+    bindGstinState(m.$('[name=gstin]'), m.$('[name=state_code]'));
     m.$('[data-dall]').addEventListener('click', () => m.$$('input[name=department_ids]').forEach((x) => (x.checked = true)));
     m.$('[data-dnone]').addEventListener('click', () => m.$$('input[name=department_ids]').forEach((x) => (x.checked = false)));
   };
@@ -264,4 +288,68 @@ export async function renderClients(root) {
   ui.add.addEventListener('click', () => open());
   ui.search.addEventListener('input', draw);
   await load();
+}
+
+/* ---------------------------- Company settings ---------------------------- */
+
+export async function renderCompany(root) {
+  const [co, { states }] = await Promise.all([api('/admin/company'), loadLookups()]);
+  const f = (name, label, opts = {}) => `<div class="field ${opts.full ? 'full' : ''}"><label>${label}${opts.req ? ' <span class="req">*</span>' : ''}</label>
+    ${opts.area ? `<textarea class="input" name="${name}" maxlength="${opts.max || 500}" rows="${opts.rows || 3}" placeholder="${esc(opts.ph || '')}">${esc(co[name])}</textarea>`
+      : `<input class="input" name="${name}" maxlength="${opts.max || 150}" ${opts.num ? 'inputmode="decimal"' : ''} ${opts.upper ? 'style="text-transform:uppercase"' : ''} placeholder="${esc(opts.ph || '')}" value="${esc(co[name] ?? '')}">`}
+    ${opts.help ? `<span class="help">${opts.help}</span>` : ''}</div>`;
+  root.innerHTML = `
+    <div class="page-head"><div><h1>Company Settings</h1><p>Our details printed on every quotation and tax invoice, plus billing defaults.</p></div></div>
+    <form class="card card-body company-form" novalidate>
+      <div class="alert err" hidden data-err></div>
+      <div class="section-title">Company</div>
+      <div class="form-grid">
+        ${f('company_name', 'Company Name', { req: true })}
+        ${f('website', 'Website')}
+        ${f('address', 'Registered Address', { full: true, area: true })}
+        <div class="field"><label>State</label>${stateSelect(states, co.state_code)}<span class="help">Decides CGST + SGST (same State) or IGST (other States).</span></div>
+        ${f('gstin', 'GSTIN', { max: 15, upper: true, ph: 'e.g. 27ABCDE1234F1Z5' })}
+        ${f('pan', 'PAN', { max: 10, upper: true, ph: 'e.g. ABCDE1234F' })}
+        ${f('email', 'Accounts Email', { max: 300 })}
+        ${f('phone', 'Phone', { max: 50 })}
+      </div>
+      <div class="section-title">Bank details (printed on invoices)</div>
+      <div class="form-grid">
+        ${f('bank_name', 'Bank Name')}
+        ${f('bank_branch', 'Branch')}
+        ${f('bank_account', 'Account Number', { max: 40 })}
+        ${f('bank_ifsc', 'IFSC', { max: 11, upper: true, ph: 'e.g. HDFC0001234' })}
+      </div>
+      <div class="section-title">Billing defaults</div>
+      <div class="form-grid">
+        ${f('default_rate', 'Default Rate per Man-Day (₹)', { num: true, help: 'Pre-filled on new quotations; can be changed per quotation.' })}
+        ${f('gst_rate', 'GST %', { num: true, req: true })}
+        ${f('sac_code', 'SAC Code', { max: 10, help: '998314 = IT design &amp; development services. Check with your accountant.' })}
+        ${f('quote_validity_days', 'Quotation Validity (days)', { num: true, req: true })}
+        ${f('payment_terms_days', 'Payment Terms (days)', { num: true, req: true, help: 'Invoice due date = invoice date + these days.' })}
+        ${f('quotation_terms', 'Quotation Terms &amp; Conditions', { full: true, area: true, max: 3000, rows: 4, ph: 'One term per line' })}
+        ${f('invoice_terms', 'Invoice Terms &amp; Conditions', { full: true, area: true, max: 3000, rows: 4, ph: 'One term per line' })}
+      </div>
+      <div class="actions" style="justify-content:flex-end;margin-top:6px">
+        <span class="help" style="margin-right:auto">${co.updated_at ? `Last updated ${fmtDateTime(co.updated_at)}` : 'Not saved yet'}</span>
+        <button class="btn btn-primary" type="submit">Save Settings</button>
+      </div>
+    </form>`;
+  const form = root.querySelector('form');
+  bindGstinState(form.gstin, form.state_code);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = form.querySelector('[type=submit]');
+    showFormError(form, null);
+    busy(btn, true);
+    try {
+      await api('/admin/company', { method: 'PUT', body: formValues(form) });
+      toast('Company settings saved.');
+      renderCompany(root);
+    } catch (err) {
+      showFormError(form, err);
+      busy(btn, false);
+      form.querySelector('[data-err]').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
 }

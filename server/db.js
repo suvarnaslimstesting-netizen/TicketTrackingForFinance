@@ -1,7 +1,7 @@
 const { AsyncLocalStorage } = require('async_hooks');
 const { Pool, types } = require('pg');
 const bcrypt = require('bcryptjs');
-const { DEFAULT_ROLES } = require('./permissions');
+const { DEFAULT_ROLES, ALL_KEYS, IMPL_BILLING, FINANCE_BILLING } = require('./permissions');
 
 // COUNT(*) and SUM() come back as strings by default; the app wants numbers.
 types.setTypeParser(20, (v) => (v === null ? null : Number(v))); // int8
@@ -169,6 +169,129 @@ CREATE TABLE IF NOT EXISTS audit_log (
   created_at    TEXT NOT NULL DEFAULT ${NOW}
 );
 CREATE INDEX IF NOT EXISTS ix_audit_entity ON audit_log (entity, entity_id);
+
+/* ---------------------------- Quotation & Billing ---------------------------- */
+
+CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT);
+
+CREATE TABLE IF NOT EXISTS company_settings (
+  id              INTEGER PRIMARY KEY CHECK (id = 1),
+  company_name    TEXT NOT NULL DEFAULT 'Suvarna Technosoft Pvt Ltd',
+  address         TEXT,
+  state_code      TEXT,
+  gstin           TEXT,
+  pan             TEXT,
+  email           TEXT,
+  phone           TEXT,
+  website         TEXT,
+  bank_name       TEXT,
+  bank_account    TEXT,
+  bank_ifsc       TEXT,
+  bank_branch     TEXT,
+  sac_code        TEXT NOT NULL DEFAULT '998314',
+  default_rate    DOUBLE PRECISION,
+  gst_rate        DOUBLE PRECISION NOT NULL DEFAULT 18,
+  quote_validity_days INTEGER NOT NULL DEFAULT 30,
+  payment_terms_days  INTEGER NOT NULL DEFAULT 30,
+  quotation_terms TEXT,
+  invoice_terms   TEXT,
+  updated_at      TEXT
+);
+INSERT INTO company_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS billing_address TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS gstin TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS state_code TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS contact_person TEXT;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS contact_email TEXT;
+
+CREATE TABLE IF NOT EXISTS doc_counters (
+  kind TEXT NOT NULL,
+  fy   TEXT NOT NULL,
+  last INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (kind, fy)
+);
+
+CREATE TABLE IF NOT EXISTS quotations (
+  id            SERIAL PRIMARY KEY,
+  approval_id   INTEGER NOT NULL REFERENCES approvals(id),
+  quote_no      TEXT NOT NULL,
+  revision      INTEGER NOT NULL DEFAULT 0,
+  quote_date    TEXT NOT NULL,
+  valid_until   TEXT,
+  description   TEXT,
+  man_days      DOUBLE PRECISION NOT NULL CHECK (man_days > 0),
+  rate          DOUBLE PRECISION NOT NULL CHECK (rate > 0),
+  tax_type      TEXT NOT NULL CHECK (tax_type IN ('CGST_SGST','IGST','NONE')),
+  gst_rate      DOUBLE PRECISION NOT NULL DEFAULT 18,
+  subtotal      DOUBLE PRECISION NOT NULL,
+  cgst          DOUBLE PRECISION NOT NULL DEFAULT 0,
+  sgst          DOUBLE PRECISION NOT NULL DEFAULT 0,
+  igst          DOUBLE PRECISION NOT NULL DEFAULT 0,
+  total         DOUBLE PRECISION NOT NULL,
+  terms         TEXT,
+  status        TEXT NOT NULL DEFAULT 'Draft' CHECK (status IN ('Draft','Sent','Accepted','Rejected','Superseded')),
+  sent_date     TEXT,
+  sent_to       TEXT,
+  sent_by       INTEGER REFERENCES users(id),
+  status_remarks TEXT,
+  created_by    INTEGER NOT NULL REFERENCES users(id),
+  created_at    TEXT NOT NULL DEFAULT ${NOW},
+  updated_by    INTEGER REFERENCES users(id),
+  updated_at    TEXT,
+  UNIQUE (quote_no, revision)
+);
+ALTER TABLE quotations ADD COLUMN IF NOT EXISTS prior_status TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_quotations_current ON quotations (approval_id) WHERE status <> 'Superseded';
+
+CREATE TABLE IF NOT EXISTS purchase_orders (
+  id            SERIAL PRIMARY KEY,
+  approval_id   INTEGER NOT NULL UNIQUE REFERENCES approvals(id),
+  quotation_id  INTEGER REFERENCES quotations(id),
+  po_number     TEXT NOT NULL,
+  po_date       TEXT NOT NULL,
+  received_date TEXT NOT NULL,
+  po_amount     DOUBLE PRECISION,
+  remarks       TEXT,
+  file_name     TEXT NOT NULL,
+  file_type     TEXT NOT NULL,
+  file_size     INTEGER NOT NULL,
+  file_data     BYTEA NOT NULL,
+  created_by    INTEGER NOT NULL REFERENCES users(id),
+  created_at    TEXT NOT NULL DEFAULT ${NOW},
+  updated_by    INTEGER REFERENCES users(id),
+  updated_at    TEXT
+);
+
+CREATE TABLE IF NOT EXISTS invoices (
+  id            SERIAL PRIMARY KEY,
+  invoice_no    TEXT NOT NULL UNIQUE,
+  approval_id   INTEGER NOT NULL REFERENCES approvals(id),
+  quotation_id  INTEGER NOT NULL REFERENCES quotations(id),
+  po_id         INTEGER REFERENCES purchase_orders(id),
+  invoice_date  TEXT NOT NULL,
+  due_date      TEXT,
+  description   TEXT,
+  man_days      DOUBLE PRECISION NOT NULL CHECK (man_days > 0),
+  rate          DOUBLE PRECISION NOT NULL CHECK (rate > 0),
+  tax_type      TEXT NOT NULL CHECK (tax_type IN ('CGST_SGST','IGST','NONE')),
+  gst_rate      DOUBLE PRECISION NOT NULL DEFAULT 18,
+  subtotal      DOUBLE PRECISION NOT NULL,
+  cgst          DOUBLE PRECISION NOT NULL DEFAULT 0,
+  sgst          DOUBLE PRECISION NOT NULL DEFAULT 0,
+  igst          DOUBLE PRECISION NOT NULL DEFAULT 0,
+  total         DOUBLE PRECISION NOT NULL,
+  remarks       TEXT,
+  status        TEXT NOT NULL DEFAULT 'Raised' CHECK (status IN ('Raised','Paid','Cancelled')),
+  paid_date     TEXT,
+  payment_ref   TEXT,
+  status_remarks TEXT,
+  created_by    INTEGER NOT NULL REFERENCES users(id),
+  created_at    TEXT NOT NULL DEFAULT ${NOW},
+  updated_by    INTEGER REFERENCES users(id),
+  updated_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_invoices_approval ON invoices (approval_id);
 `;
 
 async function audit({ entity, entityId, action, ticket, prev, next, changes, remarks, user }) {
@@ -232,9 +355,40 @@ async function seed() {
   console.log('Database initialised with default departments, roles and the administrator account.');
 }
 
+// One-off data migrations, each applied once and recorded in app_meta.
+async function migrate() {
+  const done = async (key) => !!(await q.get('SELECT 1 AS x FROM app_meta WHERE key = ?', key));
+  const mark = (key) => q.run(`INSERT INTO app_meta (key, value) VALUES (?, ${NOW}) ON CONFLICT (key) DO NOTHING`, key);
+
+  // The Admin role always carries every permission, including ones added in later versions.
+  await q.run('UPDATE roles SET permissions = ? WHERE is_system = 1', JSON.stringify(ALL_KEYS));
+
+  if (!(await done('billing_permissions_v1'))) {
+    for (const [name, keys] of [['Implementation Manager', IMPL_BILLING], ['Finance Manager', FINANCE_BILLING]]) {
+      const role = await q.get('SELECT id, permissions FROM roles WHERE name = ?', name);
+      if (!role) continue;
+      let perms = [];
+      try { perms = JSON.parse(role.permissions || '[]'); } catch { perms = []; }
+      await q.run('UPDATE roles SET permissions = ? WHERE id = ?', JSON.stringify([...new Set([...perms, ...keys])]), role.id);
+    }
+    await mark('billing_permissions_v1');
+  }
+}
+
+// Next document number in the financial year, e.g. QTN/2026-27/0001. Safe under concurrent use.
+async function nextDocNo(kind, prefix, fy) {
+  const r = await q.get(
+    `INSERT INTO doc_counters (kind, fy, last) VALUES (?, ?, 1)
+     ON CONFLICT (kind, fy) DO UPDATE SET last = doc_counters.last + 1 RETURNING last`,
+    kind, fy
+  );
+  return `${prefix}/${fy}/${String(r.last).padStart(4, '0')}`;
+}
+
 async function init() {
   await pool.query(SCHEMA);
   await seed();
+  await migrate();
 }
 
-module.exports = { pool, q, tx, audit, code, init, NOW };
+module.exports = { pool, q, tx, audit, code, init, NOW, nextDocNo };

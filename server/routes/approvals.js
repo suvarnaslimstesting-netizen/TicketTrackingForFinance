@@ -2,6 +2,7 @@ const { q, tx, audit, NOW } = require('../db');
 const { requirePerm } = require('../auth');
 const { isIsoDate, todayLocal, str, httpError, escLike, paging, asyncRouter } = require('../util');
 const { exportExcel, exportPdf } = require('../export');
+const { STATES } = require('../gst');
 
 const router = asyncRouter();
 const TICKET_TYPES = ['Support', 'Development', 'Implementation', 'Enhancement'];
@@ -173,6 +174,7 @@ router.get('/lookups', async (req, res) => {
     clients: clients.map(({ dept_csv: csv, ...c }) => ({ ...c, department_ids: csv ? String(csv).split(',').map(Number) : [] })),
     departments: await q.all("SELECT id, name FROM departments WHERE status = 'Active' ORDER BY name"),
     ticketTypes: TICKET_TYPES,
+    states: STATES,
   });
 });
 
@@ -378,7 +380,7 @@ router.get('/audit', requirePerm('audit.view'), async (req, res) => {
   const params = [];
   const isAdmin = req.user.permissions.includes('user.manage') || req.user.permissions.includes('role.manage');
   // Non-admin users only see the approval trail, not user/role administration events.
-  if (!isAdmin) where.push("entity = 'APPROVAL'");
+  if (!isAdmin) where.push("entity IN ('APPROVAL','QUOTATION','PO','INVOICE')");
   if (req.query.entity) { where.push('entity = ?'); params.push(String(req.query.entity)); }
   if (req.query.action) { where.push('action = ?'); params.push(String(req.query.action)); }
   const ticket = str(req.query.ticket);

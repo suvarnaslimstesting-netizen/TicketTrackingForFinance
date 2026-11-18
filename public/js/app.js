@@ -1,7 +1,8 @@
 import { state, api, can, esc, icon, initials, toast, modal, formValues, showFormError, busy, clearTips, loadLookups } from './core.js';
 import { renderDashboard } from './views/dashboard.js';
 import { renderApprovals, openApprovalForm } from './views/approvals.js';
-import { renderDepartments, renderRoles, renderUsers, renderClients } from './views/admin.js';
+import { renderDepartments, renderRoles, renderUsers, renderClients, renderCompany } from './views/admin.js';
+import { renderBilling } from './views/billing.js';
 import { renderAudit } from './views/audit.js';
 
 const app = document.getElementById('app');
@@ -9,11 +10,13 @@ const app = document.getElementById('app');
 const ROUTES = [
   { path: 'dashboard', label: 'Dashboard', icon: 'dashboard', perm: 'dashboard.view', group: 'Overview', render: renderDashboard },
   { path: 'approvals', label: 'Man-Day Approvals', icon: 'ticket', perm: 'approval.view', group: 'Overview', render: renderApprovals },
+  { path: 'billing', label: 'Quotation & Billing', icon: 'invoice', perm: 'billing.view', group: 'Billing', render: renderBilling },
   { path: 'audit', label: 'Audit History', icon: 'history', perm: 'audit.view', group: 'Overview', render: renderAudit },
   { path: 'departments', label: 'Departments', icon: 'building', perm: 'department.manage', group: 'Administration', render: renderDepartments },
   { path: 'roles', label: 'Roles & Permissions', icon: 'shield', perm: 'role.manage', group: 'Administration', render: renderRoles },
   { path: 'users', label: 'Users', icon: 'users', perm: 'user.manage', group: 'Administration', render: renderUsers },
   { path: 'clients', label: 'Clients', icon: 'briefcase', perm: 'client.manage', group: 'Administration', render: renderClients },
+  { path: 'company', label: 'Company Settings', icon: 'settings', perm: 'company.manage', group: 'Administration', render: renderCompany },
 ];
 
 let cleanup = null; // per-view teardown (timers etc.)
@@ -223,12 +226,18 @@ async function route() {
   if (r.path !== path) { history.replaceState(null, '', `#/${r.path}`); }
   app.querySelectorAll('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.path === r.path));
   document.title = `${r.label} · Ticket Tracking For Finance`;
+  // Each screen renders into its own container, so a slow screen that finishes
+  // after the user has already moved on cannot overwrite the current one.
   const view = document.getElementById('view');
-  view.innerHTML = '<div class="empty">Loading…</div>';
+  const host = document.createElement('div');
+  host.innerHTML = '<div class="empty">Loading…</div>';
+  view.replaceChildren(host);
   try {
-    cleanup = (await r.render(view)) || null;
+    const teardown = (await r.render(host)) || null;
+    if (host.isConnected) cleanup = teardown;
+    else if (teardown) teardown();
   } catch (err) {
-    view.innerHTML = `<div class="alert err">${esc(err.message)}</div>`;
+    host.innerHTML = `<div class="alert err">${esc(err.message)}</div>`;
   }
 }
 

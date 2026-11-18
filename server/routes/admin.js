@@ -3,6 +3,30 @@ const { q, tx, audit, code, NOW } = require('../db');
 const { requirePerm, safeJson } = require('../auth');
 const { ALL_KEYS } = require('../permissions');
 const { str, httpError, validatePassword, asyncRouter } = require('../util');
+const { STATES, GSTIN_RE } = require('../gst');
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function optText(v, label, max) {
+  const s = str(v);
+  if (s.length > max) throw httpError(400, `${label} must be ${max} characters or fewer.`);
+  return s || null;
+}
+function optGstin(v, label = 'GSTIN') {
+  const s = str(v).toUpperCase();
+  if (s && !GSTIN_RE.test(s)) throw httpError(400, `${label} is not valid (15 characters, e.g. 27ABCDE1234F1Z5).`);
+  return s || null;
+}
+function optState(v) {
+  const s = str(v);
+  if (s && !STATES.some((x) => x.code === s)) throw httpError(400, 'Invalid State.');
+  return s || null;
+}
+function optEmails(v, label) {
+  const s = str(v);
+  if (s && !s.split(/[,;]\s*/).filter(Boolean).every((e) => EMAIL_RE.test(e.trim()))) throw httpError(400, `${label} is not a valid email address.`);
+  if (s.length > 300) throw httpError(400, `${label} is too long.`);
+  return s || null;
+}
 
 const router = asyncRouter();
 const STATUSES = ['Active', 'Inactive'];
@@ -268,8 +292,17 @@ async function readClient(body) {
   if (!department_ids.length) throw httpError(400, 'Please select at least one Department for the client.');
   const found = (await q.get(`SELECT COUNT(*) c FROM departments WHERE id IN (${inList(department_ids)})`, ...department_ids)).c;
   if (found !== department_ids.length) throw httpError(400, 'Invalid Department selected.');
-  return { name, description: str(body.description), status: statusOf(body.status), department_ids };
+  const gstin = optGstin(body.gstin);
+  let state_code = optState(body.state_code);
+  if (gstin && !state_code) state_code = optState(gstin.slice(0, 2));
+  if (gstin && state_code && gstin.slice(0, 2) !== state_code) throw httpError(400, 'The GSTIN does not belong to the selected State (first 2 digits are the state code).');
+  return {
+    name, description: str(body.description), status: statusOf(body.status), department_ids,
+    billing_address: optText(body.billing_address, 'Billing Address', 500), gstin, state_code,
+    contact_person: optText(body.contact_person, 'Contact Person', 150), contact_email: optEmails(body.contact_email, 'Contact Email'),
+  };
 }
+const CLIENT_BILLING = ['billing_address', 'gstin', 'state_code', 'contact_person', 'contact_email'];
 
 async function saveClientDepts(clientId, ids) {
   await q.run('DELETE FROM client_departments WHERE client_id = ?', clientId);
@@ -279,7 +312,10 @@ async function saveClientDepts(clientId, ids) {
 router.post('/clients', requirePerm('client.manage'), async (req, res) => {
   const c = await readClient(req.body);
   const id = await tx(async () => {
-    const id = (await q.insert('INSERT INTO clients (name, description, status) VALUES (?,?,?)', c.name, c.description, c.status)).lastInsertRowid;
+    const id = (await q.insert(
+      'INSERT INTO clients (name, description, status, billing_address, gstin, state_code, contact_person, contact_email) VALUES (?,?,?,?,?,?,?,?)',
+      c.name, c.description, c.status, c.billing_address, c.gstin, c.state_code, c.contact_person, c.contact_email
+    )).lastInsertRowid;
     await saveClientDepts(id, c.department_ids);
     await audit({
       entity: 'CLIENT', entityId: id, action: 'CREATE', remarks: `Client "${c.name}" created`, user: req.user,
@@ -296,9 +332,13 @@ router.put('/clients/:id', requirePerm('client.manage'), async (req, res) => {
   const c = await readClient(req.body);
   const beforeNames = (await clientDepts(before.id)).map((d) => d.name).join(', ');
   await tx(async () => {
-    await q.run(`UPDATE clients SET name = ?, description = ?, status = ?, updated_at = ${NOW} WHERE id = ?`, c.name, c.description, c.status, before.id);
+    await q.run(
+      `UPDATE clients SET name = ?, description = ?, status = ?, billing_address = ?, gstin = ?, state_code = ?, contact_person = ?, contact_email = ?,
+              updated_at = ${NOW} WHERE id = ?`,
+      c.name, c.description, c.status, c.billing_address, c.gstin, c.state_code, c.contact_person, c.contact_email, before.id
+    );
     await saveClientDepts(before.id, c.department_ids);
-    const changes = diff(before, c, ['name', 'description', 'status']);
+    const changes = diff(before, c, ['name', 'description', 'status', ...CLIENT_BILLING]);
     const afterNames = (await clientDepts(before.id)).map((d) => d.name).join(', ');
     if (afterNames !== beforeNames) changes.departments = { from: beforeNames || null, to: afterNames };
     if (Object.keys(changes).length) {
@@ -317,6 +357,68 @@ router.delete('/clients/:id', requirePerm('client.manage'), async (req, res) => 
   await q.run('DELETE FROM clients WHERE id = ?', c.id);
   await audit({ entity: 'CLIENT', entityId: c.id, action: 'DELETE', remarks: `Client "${c.name}" deleted`, user: req.user });
   res.json({ ok: true });
+});
+
+/* ---------------------------- Company settings ---------------------------- */
+
+const COMPANY_FIELDS = ['company_name', 'address', 'state_code', 'gstin', 'pan', 'email', 'phone', 'website', 'bank_name', 'bank_account',
+  'bank_ifsc', 'bank_branch', 'sac_code', 'default_rate', 'gst_rate', 'quote_validity_days', 'payment_terms_days', 'quotation_terms', 'invoice_terms'];
+
+router.get('/company', requirePerm('company.manage'), async (req, res) => {
+  res.json(await q.get('SELECT * FROM company_settings WHERE id = 1'));
+});
+
+function numField(v, label, { int = false, max = 1e9, required = false } = {}) {
+  const s = str(v);
+  if (!s) { if (required) throw httpError(400, `${label} is required.`); return null; }
+  if (!(int ? /^\d+$/ : /^\d+(\.\d{1,2})?$/).test(s)) throw httpError(400, `${label} must be a ${int ? 'whole number' : 'number with up to 2 decimals'}.`);
+  const n = Number(s);
+  if (n > max) throw httpError(400, `${label} is too large.`);
+  return n;
+}
+
+router.put('/company', requirePerm('company.manage'), async (req, res) => {
+  const b = req.body;
+  const company_name = str(b.company_name);
+  if (!company_name) throw httpError(400, 'Company Name is required.');
+  const pan = str(b.pan).toUpperCase();
+  if (pan && !/^[A-Z]{5}\d{4}[A-Z]$/.test(pan)) throw httpError(400, 'PAN is not valid (e.g. ABCDE1234F).');
+  const ifsc = str(b.bank_ifsc).toUpperCase();
+  if (ifsc && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) throw httpError(400, 'IFSC is not valid (e.g. HDFC0001234).');
+  const v = {
+    company_name: optText(company_name, 'Company Name', 150),
+    address: optText(b.address, 'Address', 500),
+    state_code: optState(b.state_code),
+    gstin: optGstin(b.gstin, 'Company GSTIN'),
+    pan: pan || null,
+    email: optEmails(b.email, 'Email'),
+    phone: optText(b.phone, 'Phone', 50),
+    website: optText(b.website, 'Website', 150),
+    bank_name: optText(b.bank_name, 'Bank Name', 150),
+    bank_account: optText(b.bank_account, 'Account Number', 40),
+    bank_ifsc: ifsc || null,
+    bank_branch: optText(b.bank_branch, 'Branch', 150),
+    sac_code: optText(b.sac_code, 'SAC Code', 10) || '998314',
+    default_rate: numField(b.default_rate, 'Default Rate per Man-Day'),
+    gst_rate: numField(b.gst_rate, 'GST %', { max: 100, required: true }),
+    quote_validity_days: numField(b.quote_validity_days, 'Quotation Validity (days)', { int: true, max: 365, required: true }),
+    payment_terms_days: numField(b.payment_terms_days, 'Payment Terms (days)', { int: true, max: 365, required: true }),
+    quotation_terms: optText(b.quotation_terms, 'Quotation Terms', 3000),
+    invoice_terms: optText(b.invoice_terms, 'Invoice Terms', 3000),
+  };
+  if (v.gstin && v.state_code && v.gstin.slice(0, 2) !== v.state_code) throw httpError(400, 'The company GSTIN does not belong to the selected State.');
+  if (v.gstin && !v.state_code) v.state_code = optState(v.gstin.slice(0, 2));
+  const before = await q.get('SELECT * FROM company_settings WHERE id = 1');
+  const changes = diff(before, v, COMPANY_FIELDS);
+  if (!Object.keys(changes).length) return res.json(before);
+  await tx(async () => {
+    await q.run(
+      `UPDATE company_settings SET ${COMPANY_FIELDS.map((f) => `${f} = ?`).join(', ')}, updated_at = ${NOW} WHERE id = 1`,
+      ...COMPANY_FIELDS.map((f) => v[f])
+    );
+    await audit({ entity: 'COMPANY', entityId: 1, action: 'UPDATE', changes, remarks: 'Company settings updated', user: req.user });
+  });
+  res.json(await q.get('SELECT * FROM company_settings WHERE id = 1'));
 });
 
 module.exports = router;

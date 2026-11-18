@@ -2,8 +2,14 @@ import { api, esc, fmtDate, fmtDateTime, fmtNum, qs, pager, icon } from '../core
 
 const view = { entity: '', ticket: '', search: '', fromDate: '', toDate: '', page: 1, pageSize: 25 };
 
-const ENTITY = { APPROVAL: 'Approval', USER: 'User', ROLE: 'Role', DEPARTMENT: 'Department', CLIENT: 'Client', AUTH: 'Sign-in' };
-const ACTION_CLS = { CREATE: 'ok', UPDATE: 'info', ADDITIONAL_APPROVAL: 'info', DELETE: 'bad', DEACTIVATE: 'bad', ACTIVATE: 'ok', LOGIN: 'off' };
+const ENTITY = {
+  APPROVAL: 'Approval', QUOTATION: 'Quotation', PO: 'Purchase Order', INVOICE: 'Invoice',
+  USER: 'User', ROLE: 'Role', DEPARTMENT: 'Department', CLIENT: 'Client', COMPANY: 'Company Settings', AUTH: 'Sign-in',
+};
+const ACTION_CLS = {
+  CREATE: 'ok', UPDATE: 'info', ADDITIONAL_APPROVAL: 'info', DELETE: 'bad', DEACTIVATE: 'bad', ACTIVATE: 'ok', LOGIN: 'off',
+  SENT: 'info', REVISED: 'warn', REJECTED: 'bad', PAID: 'ok', CANCELLED: 'bad',
+};
 
 function describe(changes) {
   if (!changes) return '';

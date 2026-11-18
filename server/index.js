@@ -42,7 +42,10 @@ app.get('/healthz', async (req, res) => {
   }
 });
 
-app.use(express.json({ limit: '1mb' }));
+// Purchase order uploads arrive as base64 inside JSON (10 MB file ≈ 13.4 MB encoded).
+const jsonSmall = express.json({ limit: '1mb' });
+const jsonLarge = express.json({ limit: '15mb' });
+app.use((req, res, next) => (/^\/api\/billing\/(tickets\/\d+\/po|po\/\d+)$/.test(req.path) ? jsonLarge : jsonSmall)(req, res, next));
 app.use(
   session({
     name: 'ttf.sid',
@@ -71,6 +74,7 @@ app.use('/api', (req, res, next) => {
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api', requireAuth, require('./routes/approvals'));
 app.use('/api/admin', requireAuth, require('./routes/admin'));
+app.use('/api/billing', requireAuth, require('./routes/billing'));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
 
 app.use(express.static(path.join(__dirname, '..', 'public'), { index: 'index.html', maxAge: 0 }));
@@ -83,6 +87,7 @@ app.use((err, req, res, next) => {
     const field = ((err.constraint || '').match(/_(\w+?)_key$/) || [])[1];
     return res.status(409).json({ error: `A record with the same ${field ? field.replace(/_/g, ' ') : 'value'} already exists.` });
   }
+  if (err.type === 'entity.too.large') return res.status(413).json({ error: 'The file is too large. The maximum size is 10 MB.' });
   if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid request body.' });
   console.error(err);
   res.status(500).json({ error: 'Something went wrong. Please try again.' });
