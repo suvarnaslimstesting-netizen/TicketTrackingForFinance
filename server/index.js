@@ -78,6 +78,7 @@ app.use('/api', (req, res, next) => {
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api', requireAuth, require('./routes/approvals'));
 app.use('/api/admin', requireAuth, require('./routes/admin'));
+app.use('/api/passwords', requireAuth, require('./routes/passwords'));
 app.use('/api/billing', requireAuth, require('./routes/billing'));
 app.use('/api/impl/employees', requireAuth, require('./impl/employees').router);
 app.use('/api/impl', requireAuth, require('./impl/routes'));

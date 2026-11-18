@@ -29,6 +29,7 @@ const hasModuleFor = (user, m) => {
 };
 let currentModule = store.get() === 'impl' ? 'impl' : 'tracking';
 import { renderAudit } from './views/audit.js';
+import { renderPasswords } from './views/passwords.js';
 
 const app = document.getElementById('app');
 
@@ -62,6 +63,7 @@ const ROUTES = [
   { mod: 'both', path: 'departments', label: 'Departments', icon: 'building', perm: 'department.manage', group: 'Administration', render: renderDepartments },
   { mod: 'both', path: 'roles', label: 'Roles & Permissions', icon: 'shield', perm: 'role.manage', group: 'Administration', render: renderRoles },
   { mod: 'both', path: 'users', label: 'Users', icon: 'users', perm: 'user.manage', group: 'Administration', render: renderUsers },
+  { mod: 'both', path: 'passwords', label: 'Reset Passwords', icon: 'key', show: () => can('user.manage') || can('impl.users'), group: 'Administration', render: renderPasswords },
   { mod: 'both', path: 'clients', label: 'Clients', icon: 'briefcase', perm: 'client.manage', group: 'Administration', render: renderClients },
   { mod: 'tracking', path: 'company', label: 'Company Settings', icon: 'settings', perm: 'company.manage', group: 'Administration', render: renderCompany },
 ];

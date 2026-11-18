@@ -42,7 +42,7 @@ router.post('/login', async (req, res) => {
 
   const row = await q.get('SELECT id, password_hash, status FROM users WHERE username = ?', username);
   if (!row || !bcrypt.compareSync(password, row.password_hash)) {
-    const next = { count: (f && f.lockedUntil <= Date.now() ? 0 : f ? f.count : 0) + 1, lockedUntil: 0 };
+    const next = { count: (f && f.lockedUntil && f.lockedUntil <= Date.now() ? 0 : f ? f.count : 0) + 1, lockedUntil: 0 }; // a lock that has expired starts a fresh count
     if (next.count >= MAX_ATTEMPTS) next.lockedUntil = Date.now() + LOCK_MS;
     failures.set(username, next);
     return res.status(401).json({ error: 'Invalid username or password.' });
@@ -94,3 +94,6 @@ router.post('/change-password', requireAuth, async (req, res) => {
 });
 
 module.exports = router;
+// Used by the Reset Passwords screen.
+module.exports.isLocked = (username) => { const f = failures.get(String(username).toLowerCase()); return !!(f && f.lockedUntil > Date.now()); };
+module.exports.unlock = (username) => failures.delete(String(username).toLowerCase());
