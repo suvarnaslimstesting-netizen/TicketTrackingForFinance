@@ -264,7 +264,7 @@ export async function renderTeamAttendance(root) {
   if (map) { map.remove(); map = null; }
   const el = root.querySelector('[data-map]');
   map = L.map(el, { scrollWheelZoom: false }).setView([17.385, 78.4867], 11);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors', referrerPolicy: 'strict-origin-when-cross-origin' }).addTo(map);
   const bounds = [];
   live.geofences.forEach((g) => {
     L.circle([g.lat, g.lng], { radius: g.radius_m || 300, color: '#12932f', weight: 1, fillOpacity: 0.08 }).addTo(map).bindTooltip(`${esc(g.client)} – ${esc(g.name)}`);

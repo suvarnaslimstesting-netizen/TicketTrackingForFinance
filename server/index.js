@@ -28,7 +28,7 @@ app.set('trust proxy', 1); // Render terminates HTTPS in front of the app
 app.use((req, res, next) => {
   res.set('X-Content-Type-Options', 'nosniff');
   res.set('X-Frame-Options', 'DENY');
-  res.set('Referrer-Policy', 'same-origin');
+  res.set('Referrer-Policy', 'strict-origin-when-cross-origin'); // map tile servers require the site origin
   // Map tiles come from OpenStreetMap; face recognition runs on WebGL/WASM in the browser.
   res.set('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob: https://*.tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; media-src 'self' blob:; frame-ancestors 'none'");
   res.set('Permissions-Policy', 'camera=(self), geolocation=(self), microphone=()');
