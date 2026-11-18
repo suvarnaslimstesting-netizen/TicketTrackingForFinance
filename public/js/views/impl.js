@@ -159,8 +159,32 @@ export function openForm(key, row, fixed = {}, onSaved, defaults = {}) {
   const form = m.$('form');
   const clientSel = form.querySelector('[name=client]');
   const locField = e.fields.find((f) => f.key === 'loc');
-  if (clientSel && locField) {
-    clientSel.addEventListener('change', () => { form.querySelector('[name=loc]').innerHTML = refOptions(locField, null, clientSel.value); });
+  const locSel = form.querySelector('[name=loc]');
+  if (locSel && locField) {
+    // Explain an empty Location list and allow adding a location without leaving the form.
+    const hint = document.createElement('span');
+    hint.className = 'help loc-hint';
+    locSel.after(hint);
+    const clientId = () => (clientSel ? clientSel.value : fixed.client);
+    const updateHint = () => {
+      const c = clientId();
+      const n = c ? LK.locations.filter((l) => l.client === +c).length : 0;
+      const canAdd = META.entities.locations && META.entities.locations.canWrite;
+      hint.innerHTML = !c ? 'Select a client first.'
+        : n ? `${n} location(s) for this client.${canAdd ? ' <button type="button" class="link" data-addloc>+ Add location</button>' : ''}`
+          : `No locations for this client yet.${canAdd ? ' <button type="button" class="link" data-addloc>+ Add location</button>' : ' Ask the Implementation Manager to add one.'}`;
+      hint.querySelector('[data-addloc]')?.addEventListener('click', () => {
+        const before = new Set(LK.locations.map((l) => l.id));
+        openForm('locations', null, {}, async () => {
+          await refreshLookups();
+          const added = LK.locations.find((l) => !before.has(l.id) && l.client === +clientId());
+          locSel.innerHTML = refOptions(locField, added ? added.id : null, clientId());
+          updateHint();
+        }, { client: +c });
+      });
+    };
+    clientSel?.addEventListener('change', () => { locSel.innerHTML = refOptions(locField, null, clientSel.value); updateHint(); });
+    updateHint();
   }
   m.$('[data-gps]')?.addEventListener('click', async (ev) => {
     const b = ev.currentTarget;
