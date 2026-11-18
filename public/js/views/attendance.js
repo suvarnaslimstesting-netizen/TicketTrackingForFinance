@@ -140,7 +140,8 @@ export function stopLocationPings() { clearInterval(pingTimer); pingTimer = null
 const GEO = { Inside: 'ok', Outside: 'bad', Remote: 'info', 'No geofence': 'off' };
 const geoBadge = (g, d) => (g ? `<span class="badge ${GEO[g] || 'off'}">${esc(g)}${d != null ? ` · ${fmtNum(d)} m` : ''}</span>` : '');
 const hm = (t) => (t ? t.slice(11, 16) : '—');
-const mapLink = (lat, lng) => `<a class="map-link" href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}" target="_blank" rel="noopener noreferrer">Open map ↗</a>`;
+// Google Maps opens the exact point (also in the Maps app on phones); the OSM website rate-limits visitors.
+const mapLink = (lat, lng) => `<a class="map-link" href="https://www.google.com/maps/search/?api=1&query=${Number(lat).toFixed(6)},${Number(lng).toFixed(6)}" target="_blank" rel="noopener noreferrer">Open in Google Maps ↗</a>`;
 const coordsLine = (lat, lng, acc) => (lat != null && lng != null
   ? `<span class="sub coords"><span class="mono">${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}</span>${acc != null ? ` ±${Math.round(acc)} m` : ''} · ${mapLink(lat, lng)}</span>` : '');
 const photo = (id, label) => (id ? `<button type="button" class="ph-btn" data-ph="${id}" title="${esc(label)}"><img src="/api/attendance/photo/${id}" alt="${esc(label)}" loading="lazy"></button>` : '');
