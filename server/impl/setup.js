@@ -94,6 +94,11 @@ async function setup() {
   await migrateRoles();
   await migrateFaceFlag();
   await migrateEmployees();
+  try {
+    await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS ux_approvals_ticket ON approvals (ticket_number) WHERE is_deleted = 0');
+  } catch (err) {
+    console.warn('Could not enforce unique ticket numbers (existing duplicates?):', err.message);
+  }
   // Break requests: existing breaks count as approved; Implementation Manager approves new requests.
   if (!(await q.get("SELECT 1 AS x FROM app_meta WHERE key = 'break_requests_v1'"))) {
     await q.run("UPDATE im_abreaks SET status = 'Approved' WHERE status IS NULL");

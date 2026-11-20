@@ -51,7 +51,7 @@ Everyone must set a new password the first time they sign in. Accounts that the 
 - Every client is mapped to one or more departments. When an approval is created or edited, choosing the client fills in its departments automatically: a single department is selected for you, and if there are several, all are pre-ticked and you can untick any that do not apply. At least one must stay selected.
 - Man-days must be a positive number with up to 2 decimals.
 - The approved date cannot be in the future.
-- **Only one approval can exist for each ticket and client.** If an entry already exists, the form shows the existing record and offers an **Additional Approval**. That adds man-days to the existing ticket and records the change in its history.
+- **A ticket number can be entered only once (for any client).** As soon as an existing ticket number is typed, a popup shows the existing record and offers to view it or add an **Additional Approval**. That adds man-days to the existing ticket and records the change in its history.
 - Editing a record requires Modification Remarks. Deleting a record requires a reason. Deleted records are hidden from the listing, but their audit history is kept.
 - Permissions can be configured per role (Roles & Permissions screen). Changes take effect immediately.
 - Inactive users cannot sign in. Deactivating a user ends their current session.

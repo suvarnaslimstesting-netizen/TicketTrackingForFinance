@@ -153,8 +153,9 @@ function readApproval(body) {
   };
 }
 
-const findDuplicate = (ticket, clientId, excludeId = 0) =>
-  one(`${SELECT} WHERE a.is_deleted = 0 AND a.ticket_number = ? AND a.client_id = ? AND a.id <> ?`, ticket, clientId, excludeId);
+// A ticket number can be used only once (for any client).
+const findDuplicate = (ticket, excludeId = 0) =>
+  one(`${SELECT} WHERE a.is_deleted = 0 AND a.ticket_number = ? AND a.id <> ?`, ticket, excludeId);
 
 async function getApproval(id) {
   if (!Number.isInteger(id)) throw httpError(404, 'Approval record not found.');
@@ -200,9 +201,8 @@ router.get('/approvals/version', requirePerm('approval.view'), async (req, res) 
 
 router.get('/approvals/check', requirePerm('approval.add', 'approval.edit'), async (req, res) => {
   const ticket = str(req.query.ticket).toUpperCase();
-  const clientId = parseInt(req.query.clientId, 10);
-  if (!ticket || !Number.isInteger(clientId)) return res.json({ duplicate: null });
-  res.json({ duplicate: (await findDuplicate(ticket, clientId, parseInt(req.query.excludeId, 10) || 0)) || null });
+  if (!ticket) return res.json({ duplicate: null });
+  res.json({ duplicate: (await findDuplicate(ticket, parseInt(req.query.excludeId, 10) || 0)) || null });
 });
 
 async function runExport(req, res, kind) {
@@ -231,9 +231,9 @@ router.post('/approvals', requirePerm('approval.add'), async (req, res) => {
   if (!client) throw httpError(400, 'Client Name is required.');
   if (client.status !== 'Active') throw httpError(400, 'The selected client is inactive.');
 
-  const dup = await findDuplicate(a.ticket_number, a.client_id);
+  const dup = await findDuplicate(a.ticket_number);
   if (dup) {
-    throw httpError(409, `An approval for ticket ${a.ticket_number} and client ${client.name} already exists.`, { code: 'DUPLICATE', existing: dup });
+    throw httpError(409, `Ticket ${a.ticket_number} already exists (client ${dup.client_name}).`, { code: 'DUPLICATE', existing: dup });
   }
   await checkDepartments(a.department_ids, a.client_id);
 
@@ -268,8 +268,9 @@ router.put('/approvals/:id', requirePerm('approval.edit'), async (req, res) => {
   const client = await q.get('SELECT * FROM clients WHERE id = ?', a.client_id);
   if (!client) throw httpError(400, 'Client Name is required.');
   if (client.id !== before.client_id && client.status !== 'Active') throw httpError(400, 'The selected client is inactive.');
-  if (await findDuplicate(a.ticket_number, a.client_id, before.id)) {
-    throw httpError(409, `Another approval for ticket ${a.ticket_number} and client ${client.name} already exists.`);
+  const other = await findDuplicate(a.ticket_number, before.id);
+  if (other) {
+    throw httpError(409, `Ticket ${a.ticket_number} already exists (client ${other.client_name}).`, { code: 'DUPLICATE', existing: other });
   }
   await checkDepartments(a.department_ids, a.client_id, a.client_id === before.client_id ? before.department_ids : []);
 

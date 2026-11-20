@@ -260,27 +260,43 @@ export async function openApprovalForm({ record = null, onSaved } = {}) {
   const dupBox = m.$('[data-dup]');
   let duplicate = null;
 
-  const checkDup = async () => {
-    const ticket = form.ticket_number.value.trim();
-    const clientId = form.client_id.value;
+  // A ticket number may exist only once: as soon as an existing number is entered, show a popup.
+  let popupFor = '';
+  const goAdditional = () => { m.close(); openAdditional(duplicate, onSaved, { man_days: form.approved_man_days.value, approved_by: form.approved_by.value, approved_date: form.approved_date.value, remarks: form.remarks.value }); };
+  const showDupPopup = (d) => {
+    const p = modal({
+      title: 'Ticket already exists', size: 'dup',
+      body: `<div class="dup-pop"><div class="dup-ico">!</div><div><p style="margin:0 0 10px">Ticket <b>${esc(d.ticket_number)}</b> is already entered. The same ticket number cannot be added again.</p>
+        <dl class="details" style="grid-template-columns:1fr 1fr;margin:0">
+          <div><dt>Client</dt><dd>${esc(d.client_name)}</dd></div><div><dt>Approved Man-Days</dt><dd>${fmtNum(d.approved_man_days)}</dd></div>
+          <div><dt>Approved By</dt><dd>${esc(d.approved_by)}</dd></div><div><dt>Approved Date</dt><dd>${fmtDate(d.approved_date)}</dd></div>
+          <div class="full"><dt>Entered By</dt><dd>${esc(d.created_by_name)} · ${fmtDateTime(d.created_at)}</dd></div></dl></div></div>`,
+      footer: `<button class="btn" data-change>Change ticket number</button>
+        ${!editing && can('approval.edit') ? '<button class="btn" data-more>Add more man-days to it</button>' : ''}
+        <button class="btn btn-primary" data-view>View existing ticket</button>`,
+    });
+    p.$('[data-change]').addEventListener('click', () => { p.close(); form.ticket_number.focus(); form.ticket_number.select(); });
+    p.$('[data-more]')?.addEventListener('click', () => { p.close(); goAdditional(); });
+    p.$('[data-view]').addEventListener('click', () => { p.close(); m.close(); openDetails(d.id, onSaved); });
+  };
+  const checkDup = async ({ popup = false } = {}) => {
+    const ticket = form.ticket_number.value.trim().toUpperCase();
     duplicate = null;
     dupBox.hidden = true;
-    if (!ticket || !clientId) return;
+    if (!ticket) return;
     try {
-      const res = await api('/approvals/check' + qs({ ticket, clientId, excludeId: editing ? r.id : '' }));
+      const res = await api('/approvals/check' + qs({ ticket, excludeId: editing ? r.id : '' }));
       duplicate = res.duplicate;
     } catch { return; }
-    if (!duplicate) return;
+    if (!duplicate || form.ticket_number.value.trim().toUpperCase() !== ticket) return;
     dupBox.hidden = false;
-    dupBox.innerHTML = `<div class="grow"><b>Ticket ${esc(duplicate.ticket_number)} already has an approval for ${esc(duplicate.client_name)}</b>
-      — ${fmtNum(duplicate.approved_man_days)} man-days approved on ${fmtDate(duplicate.approved_date)} by ${esc(duplicate.approved_by)}.
-      ${editing ? 'Choose a different ticket or client.' : 'To record more man-days for this ticket, add an additional approval to the existing record.'}</div>
-      ${!editing && can('approval.edit') ? '<button type="button" class="btn btn-sm" data-goadd>Add additional approval</button>' : ''}`;
-    const go = dupBox.querySelector('[data-goadd]');
-    if (go) go.addEventListener('click', () => { m.close(); openAdditional(duplicate, onSaved, { man_days: form.approved_man_days.value, approved_by: form.approved_by.value, approved_date: form.approved_date.value, remarks: form.remarks.value }); });
+    dupBox.innerHTML = `<div class="grow"><b>Ticket ${esc(duplicate.ticket_number)} already exists</b> for ${esc(duplicate.client_name)}
+      — ${fmtNum(duplicate.approved_man_days)} man-days approved on ${fmtDate(duplicate.approved_date)} by ${esc(duplicate.approved_by)}. Enter a different ticket number.</div>
+      ${!editing && can('approval.edit') ? '<button type="button" class="btn btn-sm" data-goadd>Add more man-days to it</button>' : ''}`;
+    dupBox.querySelector('[data-goadd]')?.addEventListener('click', goAdditional);
+    if (popup && popupFor !== ticket) { popupFor = ticket; showDupPopup(duplicate); }
   };
-  form.ticket_number.addEventListener('blur', () => { form.ticket_number.value = form.ticket_number.value.trim().toUpperCase(); checkDup(); });
-  form.client_id.addEventListener('change', checkDup);
+  form.ticket_number.addEventListener('blur', () => { form.ticket_number.value = form.ticket_number.value.trim().toUpperCase(); checkDup({ popup: true }); });
 
   // Department(s) follow the selected client: a single department is filled in automatically,
   // several are all pre-ticked so the user can keep or untick any of them.
@@ -318,7 +334,7 @@ export async function openApprovalForm({ record = null, onSaved } = {}) {
   form.client_id.addEventListener('change', () => renderDepts(false));
   renderDepts(editing);
   let t = null;
-  form.ticket_number.addEventListener('input', () => { dupBox.hidden = true; duplicate = null; clearTimeout(t); t = setTimeout(checkDup, 400); });
+  form.ticket_number.addEventListener('input', () => { dupBox.hidden = true; duplicate = null; clearTimeout(t); t = setTimeout(() => checkDup({ popup: true }), 700); });
   if (editing) checkDup();
 
   const validate = (v) => {
@@ -338,7 +354,7 @@ export async function openApprovalForm({ record = null, onSaved } = {}) {
     const v = formValues(form);
     const msg = validate(v);
     if (msg) return showFormError(form, new Error(msg));
-    if (duplicate) return showFormError(form, new Error('A record for this ticket and client already exists. See the notice above.'));
+    if (duplicate) { showDupPopup(duplicate); return showFormError(form, new Error(`Ticket ${duplicate.ticket_number} already exists. Enter a different ticket number.`)); }
     showFormError(form, null);
     const btn = m.$('[data-save]');
     busy(btn, true, editing ? 'Saving…' : 'Submitting…');
@@ -349,7 +365,7 @@ export async function openApprovalForm({ record = null, onSaved } = {}) {
       onSaved && onSaved(saved);
     } catch (err) {
       busy(btn, false);
-      if (err.data && err.data.code === 'DUPLICATE') { await checkDup(); }
+      if (err.data && err.data.code === 'DUPLICATE') { popupFor = ''; await checkDup({ popup: true }); }
       showFormError(form, err);
     }
   });

@@ -652,3 +652,8 @@ table.tbl { width: 100%; border-collapse: separate; border-spacing: 0; font-size
 .map-link { font-weight: 600; white-space: nowrap; }
 .sub.coords { font-size: 11.5px; }
 .pw-show { font-size: 15px; font-weight: 700; color: var(--primary-2); letter-spacing: .03em; user-select: all; }
+
+.dup-pop { display: flex; gap: 14px; align-items: flex-start; }
+.dup-ico { width: 40px; height: 40px; flex: none; border-radius: 50%; background: var(--warning-soft); color: var(--warning); display: grid; place-items: center; font-size: 22px; font-weight: 800; }
+.modal.dup { max-width: 600px; }
+.modal-foot { flex-wrap: wrap; }
